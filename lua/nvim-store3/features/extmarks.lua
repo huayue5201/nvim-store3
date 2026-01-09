@@ -115,8 +115,6 @@ function M:load_persisted(bufnr)
 		return
 	end
 
-	-- 获取该缓冲区的所有持久化extmarks
-	local prefix = string.format("extmarks.%d.", bufnr)
 	local keys = self.store:namespace_keys("extmarks")
 
 	for _, key in ipairs(keys) do
