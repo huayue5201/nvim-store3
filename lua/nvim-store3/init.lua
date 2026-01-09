@@ -1,30 +1,44 @@
--- 简化版入口文件 - 支持自动编码配置
+-- nvim-store3/init.lua
+-- 专业版入口文件（统一配置结构 + 插件系统）
 
 local M = {}
 
 local global_instance = nil
 local project_instance = nil
 
---- 获取全局存储实例
---- @param opts? table 配置选项
---- @return table Store实例
+---------------------------------------------------------------------
+-- 创建默认配置
+---------------------------------------------------------------------
+local function default_config(scope, Path)
+	return {
+		scope = scope,
+		storage = {
+			path = scope == "global" and Path.global_store_path() or Path.project_store_path(),
+			backend = "json",
+			flush_delay = 1000,
+		},
+
+		-- 自动编码（推荐开启）
+		auto_encode = true,
+
+		-- 插件配置（用户可覆盖）
+		plugins = {
+			-- basic_cache = true,
+			-- extmarks = { persist_extmarks = true },
+		},
+	}
+end
+
+---------------------------------------------------------------------
+-- 获取全局存储实例
+---------------------------------------------------------------------
 function M.global(opts)
 	if not global_instance then
 		local Store = require("nvim-store3.core.store")
 		local Path = require("nvim-store3.util.path")
 
-		-- 默认配置
-		local config = {
-			scope = "global",
-			storage = {
-				path = Path.global_store_path(),
-				backend = "json",
-				flush_delay = 1000,
-			},
-			auto_encode = true, -- 默认启用自动编码
-		}
+		local config = default_config("global", Path)
 
-		-- 合并用户配置
 		if opts then
 			config = vim.tbl_deep_extend("force", config, opts)
 		end
@@ -35,26 +49,16 @@ function M.global(opts)
 	return global_instance
 end
 
---- 获取项目存储实例
---- @param opts? table 配置选项
---- @return table Store实例
+---------------------------------------------------------------------
+-- 获取项目存储实例
+---------------------------------------------------------------------
 function M.project(opts)
 	if not project_instance then
 		local Store = require("nvim-store3.core.store")
 		local Path = require("nvim-store3.util.path")
 
-		-- 默认配置
-		local config = {
-			scope = "project",
-			storage = {
-				path = Path.project_store_path(),
-				backend = "json",
-				flush_delay = 1000,
-			},
-			-- auto_encode = true, -- 默认启用自动编码
-		}
+		local config = default_config("project", Path)
 
-		-- 合并用户配置
 		if opts then
 			config = vim.tbl_deep_extend("force", config, opts)
 		end
@@ -65,8 +69,9 @@ function M.project(opts)
 	return project_instance
 end
 
---- 获取可用插件列表
---- @return table 插件名称列表
+---------------------------------------------------------------------
+-- 获取可用插件列表
+---------------------------------------------------------------------
 function M.get_available_plugins()
 	local PluginLoader = require("nvim-store3.core.plugin_loader")
 	local plugins = {}
@@ -78,7 +83,9 @@ function M.get_available_plugins()
 	return plugins
 end
 
---- 清理所有实例
+---------------------------------------------------------------------
+-- 清理所有实例
+---------------------------------------------------------------------
 function M.clear()
 	if global_instance then
 		global_instance:cleanup()
@@ -90,9 +97,9 @@ function M.clear()
 	end
 end
 
---- 注册自定义插件
---- @param plugin_name string 插件名称
---- @param module_path string 模块路径
+---------------------------------------------------------------------
+-- 注册自定义插件
+---------------------------------------------------------------------
 function M.register_plugin(plugin_name, module_path)
 	local PluginLoader = require("nvim-store3.core.plugin_loader")
 	PluginLoader.registry[plugin_name] = module_path

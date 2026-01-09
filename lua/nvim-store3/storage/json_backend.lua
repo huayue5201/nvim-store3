@@ -51,7 +51,11 @@ function JsonBackend:_process_pending_writes()
 
 	for _, write in ipairs(pending) do
 		local namespace, key, value = unpack(write)
-		self.data[key] = value
+		if value == nil then
+			self.data[key] = nil
+		else
+			self.data[key] = value
+		end
 	end
 
 	self.dirty = true
