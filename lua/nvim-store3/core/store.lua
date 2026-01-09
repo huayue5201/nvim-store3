@@ -1,16 +1,13 @@
--- lua/nvim-store3/core/store.lua
--- 统一的 Store 类，支持全局和项目作用域
+-- 核心存储类 - 集成自动路径编码
 
-local FeatureManager = require("nvim-store3.core.feature_manager")
+local PluginLoader = require("nvim-store3.core.plugin_loader")
+local Path = require("nvim-store3.util.path")
 
---- @class Store
---- @field scope string 作用域："global" 或 "project"
---- @field config table 配置信息
---- @field backend table 存储后端实例
---- @field features table 功能模块管理器
---- @field _data table 内存中的数据缓存
 local Store = {}
 Store.__index = Store
+
+-- 特殊标记，用于区分缓存中的nil值和未查询状态
+local NULL_MARKER = "__null__"
 
 --- 创建新的 Store 实例
 --- @param config table 配置信息
@@ -18,11 +15,12 @@ Store.__index = Store
 function Store.new(config)
 	local self = {
 		scope = config.scope,
-		config = config,
-		backend = nil,
-		features = FeatureManager.new(),
-		_data = {},
+		storage_config = config.storage,
+		_data = {}, -- 内存缓存（使用编码后的键）
+		_backend = nil,
+		_plugin_loader = nil,
 		_initialized = false,
+		_auto_encode = config.auto_encode ~= false, -- 默认启用自动编码
 	}
 
 	setmetatable(self, Store)
@@ -30,10 +28,11 @@ function Store.new(config)
 	-- 初始化存储后端
 	self:_init_backend()
 
-	-- 初始化基础功能（如果配置了的话）
-	self:_init_features(config)
+	-- 初始化插件加载器（只加载核心插件）
+	self._plugin_loader = PluginLoader.new(self, config)
+	self._plugin_loader:load_plugins()
 
-	-- 设置退出前自动保存
+	-- 设置自动保存
 	self:_setup_autocmd()
 
 	self._initialized = true
@@ -43,25 +42,15 @@ end
 --- 初始化存储后端
 function Store:_init_backend()
 	local BackendFactory = require("nvim-store3.storage.backend_factory")
+	local PathUtil = require("nvim-store3.util.path")
 
 	-- 确保存储目录存在
-	local Path = require("nvim-store3.util.path")
-	local dir = vim.fn.fnamemodify(self.config.storage.path, ":h")
+	local dir = vim.fn.fnamemodify(self.storage_config.path, ":h")
 	if vim.fn.isdirectory(dir) == 0 then
 		vim.fn.mkdir(dir, "p")
 	end
 
-	self.backend = BackendFactory.create(self.config.storage)
-end
-
---- 初始化功能模块
-function Store:_init_features(config)
-	-- 遍历配置，查找功能配置
-	for key, value in pairs(config) do
-		if self.features:is_feature(key) and value ~= nil then
-			self.features:enable(key, value, self)
-		end
-	end
+	self._backend = BackendFactory.create(self.storage_config)
 end
 
 --- 设置自动命令
@@ -75,92 +64,193 @@ function Store:_setup_autocmd()
 	})
 end
 
+--- 获取安全的存储键（内部使用）
+--- @param key string 原始键名
+--- @return string 编码后的安全键
+function Store:_safe_key(key)
+	if not self._auto_encode then
+		return key
+	end
+	return Path.encode_key(key)
+end
+
+--- 获取原始键名（内部使用）
+--- @param safe_key string 编码后的安全键
+--- @return string 原始键名
+function Store:_unsafe_key(safe_key)
+	if not self._auto_encode then
+		return safe_key
+	end
+	return Path.decode_key(safe_key)
+end
+
 ----------------------------------------------------------------------
--- 基础 CRUD API（永远可用）
+-- 核心 CRUD API（自动路径编码）
 ----------------------------------------------------------------------
 
---- 存储数据
+--- 存储数据（自动编码键名）
 --- @param key string 键名
 --- @param value any 数据值
 function Store:set(key, value)
-	self._data[key] = value
-	self.backend:set(nil, key, value)
+	local safe_key = self:_safe_key(key)
+	self._data[safe_key] = value
+	self._backend:set(nil, safe_key, value)
 end
 
---- 获取数据
+--- 获取数据（自动编码键名）
 --- @param key string 键名
 --- @return any 数据值
 function Store:get(key)
-	-- 优先从内存缓存获取
-	if self._data[key] ~= nil then
-		return self._data[key]
+	local safe_key = self:_safe_key(key)
+
+	-- 检查内存缓存，但跳过NULL标记
+	local cached = self._data[safe_key]
+	if cached == NULL_MARKER then
+		return nil
+	elseif cached ~= nil then
+		return cached
 	end
 
 	-- 从后端获取
-	local value = self.backend:get(nil, key)
-	self._data[key] = value
+	local value = self._backend:get(nil, safe_key)
+	-- 缓存时区分nil值和有效值
+	self._data[safe_key] = value or NULL_MARKER
 	return value
 end
 
---- 删除数据
+--- 删除数据（自动编码键名）
 --- @param key string 键名
 function Store:delete(key)
-	self._data[key] = nil
-	self.backend:delete(nil, key)
+	local safe_key = self:_safe_key(key)
+	self._data[safe_key] = NULL_MARKER
+	self._backend:delete(nil, safe_key)
 end
 
---- 查询数据（点号路径）
+--- 批量设置数据（自动编码键名）
+--- @param data table 键值对表
+function Store:batch_set(data)
+	for key, value in pairs(data) do
+		local safe_key = self:_safe_key(key)
+		self._data[safe_key] = value
+		self._backend:set(nil, safe_key, value)
+	end
+end
+
+--- 批量获取数据（自动编码键名）
+--- @param keys table 键名列表
+--- @return table 键值对表
+function Store:batch_get(keys)
+	local result = {}
+	for _, key in ipairs(keys) do
+		result[key] = self:get(key)
+	end
+	return result
+end
+
+--- 查询数据（点号路径，支持编码路径）
 --- @param path string 点号路径
 --- @return any 查询结果
 function Store:query(path)
 	local Query = require("nvim-store3.util.query")
-	return Query.get(self._data, path)
+
+	-- 创建编码函数包装器
+	local encode_func = function(part)
+		return self:_safe_key(part)
+	end
+
+	-- 使用带编码器的查询
+	return Query.get(self._data, path, encode_func)
 end
 
---- 获取所有键（由后端提供）
+--- 获取所有键（返回解码后的原始键名）
 --- @return string[] 键名列表
 function Store:keys()
-	if self.backend and self.backend.keys then
-		return self.backend:keys(nil)
+	if self._backend and self._backend.keys then
+		local safe_keys = self._backend:keys(nil)
+		return Path.batch_decode_keys(safe_keys)
 	end
 	return {}
 end
 
-----------------------------------------------------------------------
--- 其他基础方法
-----------------------------------------------------------------------
+--- 获取命名空间下的所有键（返回解码后的原始键名）
+--- @param namespace string 命名空间（如 "notes"）
+--- @return string[] 键名列表（不含命名空间前缀）
+function Store:namespace_keys(namespace)
+	local all_keys = self:keys()
+	local result = {}
+	local prefix = namespace .. "."
+
+	for _, key in ipairs(all_keys) do
+		if key:sub(1, #prefix) == prefix then
+			table.insert(result, key:sub(#prefix + 1))
+		end
+	end
+
+	return result
+end
 
 --- 强制刷新数据到磁盘
 --- @return boolean 是否成功
 function Store:flush()
-	return self.backend:flush()
+	return self._backend:flush()
 end
 
---- 获取作用域
---- @return string 作用域名称
-function Store:scope()
-	return self.scope
-end
+--- 获取存储统计信息
+--- @return table 统计信息
+function Store:get_stats()
+	local keys = self:keys()
+	local total_size = 0
+	local encoded_keys = 0
 
---- 获取配置
---- @return table 配置信息
-function Store:get_config()
-	return vim.deepcopy(self.config)
-end
+	-- 估算总大小和统计编码键数量
+	for _, key in ipairs(keys) do
+		local value = self:get(key)
+		if value then
+			total_size = total_size + #vim.fn.json_encode(value)
+		end
 
---- 重新加载配置（谨慎使用）
---- @param new_config table 新的配置
-function Store:reload_config(new_config)
-	-- 验证新配置
-	if new_config.scope ~= self.scope then
-		error("Cannot change scope after initialization")
+		-- 统计编码键数量
+		local safe_key = self:_safe_key(key)
+		if Path.is_encoded_key(safe_key) then
+			encoded_keys = encoded_keys + 1
+		end
 	end
 
-	-- 重新初始化功能
-	self.features:reload(new_config, self)
+	return {
+		total_keys = #keys,
+		encoded_keys = encoded_keys,
+		cache_size = #vim.tbl_keys(self._data),
+		estimated_size = total_size,
+		scope = self.scope,
+		auto_encode_enabled = self._auto_encode,
+	}
+end
 
-	-- 更新配置
-	self.config = vim.tbl_deep_extend("force", self.config, new_config)
+--- 启用或禁用自动编码
+--- @param enabled boolean 是否启用
+function Store:set_auto_encode(enabled)
+	if self._auto_encode == enabled then
+		return
+	end
+
+	-- 清空内存缓存，因为键的编码方式改变了
+	self._data = {}
+	self._auto_encode = enabled
+end
+
+--- 检查是否启用自动编码
+--- @return boolean 是否启用
+function Store:get_auto_encode()
+	return self._auto_encode
+end
+
+--- 清理资源
+function Store:cleanup()
+	if self._plugin_loader then
+		self._plugin_loader:cleanup()
+	end
+	self:flush()
+	self._data = {}
 end
 
 return Store
