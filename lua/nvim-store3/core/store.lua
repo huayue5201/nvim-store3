@@ -20,24 +20,17 @@ function Store.new(config)
 		_data = {},
 		_backend = nil,
 		_plugin_loader = nil,
-		_initialized = false,
 		_auto_encode = config.auto_encode ~= false,
 		_events = Event.new(),
 	}
 
 	setmetatable(self, Store)
 
-	-- 初始化后端（不创建目录）
 	self:_init_backend()
-
-	-- 加载插件
 	self._plugin_loader = PluginLoader.new(self, config)
 	self._plugin_loader:load_plugins()
-
-	-- 自动 flush
 	self:_setup_autocmd()
 
-	self._initialized = true
 	return self
 end
 
@@ -53,17 +46,10 @@ function Store:_emit(event, payload)
 end
 
 ---------------------------------------------------------------------
--- 初始化后端（不创建目录）
+-- 初始化后端
 ---------------------------------------------------------------------
 function Store:_init_backend()
 	local BackendFactory = require("nvim-store3.storage.backend_factory")
-
-	-- ❗ 删除自动创建目录的逻辑
-	-- local dir = vim.fn.fnamemodify(self.storage_config.path, ":h")
-	-- if vim.fn.isdirectory(dir) == 0 then
-	--   vim.fn.mkdir(dir, "p")
-	-- end
-
 	self._backend = BackendFactory.create(self.storage_config)
 end
 
@@ -90,13 +76,6 @@ function Store:_safe_key(key)
 	return Path.encode_key(key)
 end
 
-function Store:_unsafe_key(safe_key)
-	if not self._auto_encode then
-		return safe_key
-	end
-	return Path.decode_key(safe_key)
-end
-
 ---------------------------------------------------------------------
 -- CRUD API
 ---------------------------------------------------------------------
@@ -110,6 +89,7 @@ end
 function Store:get(key)
 	local safe_key = self:_safe_key(key)
 	local cached = self._data[safe_key]
+
 	if cached == NULL_MARKER then
 		return nil
 	elseif cached ~= nil then
@@ -123,34 +103,12 @@ end
 
 function Store:delete(key)
 	local safe_key = self:_safe_key(key)
-	self._data[safe_key] = NULL_MARKER
+
+	-- 删除缓存项，避免 NULL_MARKER 堆积
+	self._data[safe_key] = nil
+
 	self._backend:delete(nil, safe_key)
 	self:_emit("delete", { key = key })
-end
-
-function Store:batch_set(data)
-	for key, value in pairs(data) do
-		self:set(key, value)
-	end
-end
-
-function Store:batch_get(keys)
-	local result = {}
-	for _, key in ipairs(keys) do
-		result[key] = self:get(key)
-	end
-	return result
-end
-
----------------------------------------------------------------------
--- 查询
----------------------------------------------------------------------
-function Store:query(path)
-	local Query = require("nvim-store3.util.query")
-	local encode_func = function(part)
-		return self:_safe_key(part)
-	end
-	return Query.get(self._data, path, encode_func)
 end
 
 ---------------------------------------------------------------------
@@ -168,11 +126,13 @@ function Store:namespace_keys(namespace)
 	local all_keys = self:keys()
 	local result = {}
 	local prefix = namespace .. "."
+
 	for _, key in ipairs(all_keys) do
 		if key:sub(1, #prefix) == prefix then
 			table.insert(result, key:sub(#prefix + 1))
 		end
 	end
+
 	return result
 end
 
@@ -182,6 +142,14 @@ end
 function Store:flush()
 	local ok = self._backend:flush()
 	self:_emit("flush", { ok = ok })
+
+	-- 清理 NULL_MARKER 和无效缓存
+	for k, v in pairs(self._data) do
+		if v == NULL_MARKER or v == nil then
+			self._data[k] = nil
+		end
+	end
+
 	return ok
 end
 
@@ -198,6 +166,7 @@ function Store:get_stats()
 		if value then
 			total_size = total_size + #vim.fn.json_encode(value)
 		end
+
 		local safe_key = Path.encode_key(key)
 		if Path.is_encoded_key(safe_key) then
 			encoded_keys = encoded_keys + 1
