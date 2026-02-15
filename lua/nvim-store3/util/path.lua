@@ -1,12 +1,12 @@
--- 路径工具模块（增强版：透明 Base64 编码 + 懒初始化目录）
+-- lua/nvim-store3/util/path.lua
+-- 路径工具模块（透明 Base64 编码 + 懒初始化目录）
 
 local M = {}
 
--- 编码标识前缀
 local ENCODED_PREFIX = "b64:"
 
 ---------------------------------------------------------------------
--- 键编码工具（保持原样）
+-- 键编码工具
 ---------------------------------------------------------------------
 local function needs_encode(key)
 	if not key or type(key) ~= "string" then
@@ -52,14 +52,6 @@ function M.is_encoded_key(key)
 	return key and type(key) == "string" and key:sub(1, #ENCODED_PREFIX) == ENCODED_PREFIX
 end
 
-function M.batch_encode_keys(keys)
-	local result = {}
-	for _, key in ipairs(keys) do
-		table.insert(result, M.encode_key(key))
-	end
-	return result
-end
-
 function M.batch_decode_keys(safe_keys)
 	local result = {}
 	for _, safe_key in ipairs(safe_keys) do
@@ -81,7 +73,6 @@ local function project_key()
 	return root:gsub("[/\\]", "_")
 end
 
--- ❗ 不自动创建目录
 local function project_store_dir()
 	local cache = vim.fn.stdpath("cache")
 	return cache .. "/nvim-store/" .. project_key()
@@ -99,18 +90,13 @@ end
 -- 全局路径（懒初始化，不自动创建目录）
 ---------------------------------------------------------------------
 
-function M.global_store_path()
-	local data_dir = vim.fn.stdpath("data") -- ~/.local/share/nvim
-	return data_dir .. "/nvim-store/global.json"
+local function global_store_dir()
+	local cache = vim.fn.stdpath("cache")
+	return cache .. "/nvim-store/global"
 end
 
----------------------------------------------------------------------
--- 目录创建工具（仅写入时调用）
----------------------------------------------------------------------
-function M.ensure_dir(path)
-	if vim.fn.isdirectory(path) == 0 then
-		vim.fn.mkdir(path, "p")
-	end
+function M.global_store_path()
+	return global_store_dir() .. "/data.json"
 end
 
 return M

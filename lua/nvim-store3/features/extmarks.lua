@@ -1,11 +1,25 @@
---- File: /Users/lijia/nvim-store3/lua/nvim-store3/features/extmarks.lua ---
 -- Extmarks存储插件 - 可选基础设施
 local M = {}
 
---- 创建Extmarks实例
---- @param store table Store实例
---- @param config table 配置
---- @return table Extmarks实例
+---------------------------------------------------------------------
+-- 内部：buffer 安全层（防御 nil / vim.NIL / 无效 buffer）
+---------------------------------------------------------------------
+local function normalize_buf(buf)
+	if buf == nil or buf == vim.NIL then
+		return nil
+	end
+	if type(buf) ~= "number" then
+		return nil
+	end
+	if not vim.api.nvim_buf_is_valid(buf) then
+		return nil
+	end
+	return buf
+end
+
+---------------------------------------------------------------------
+-- 创建 Extmarks 实例
+---------------------------------------------------------------------
 function M.new(store, config)
 	config = config or {}
 
@@ -14,38 +28,35 @@ function M.new(store, config)
 		config = {
 			enabled = config.enabled ~= false,
 			namespace = config.namespace or "nvim_store_extmarks",
-			persist_extmarks = config.persist_extmarks or false, -- 是否持久化extmarks
+			persist_extmarks = config.persist_extmarks or false,
 		},
 		namespaces = {},
 	}
 
 	setmetatable(self, { __index = M })
-
 	return self
 end
 
---- 设置extmark
---- @param bufnr number 缓冲区编号
---- @param line number 行号（1-based）
---- @param opts table 选项
---- @return number|nil extmark id
+---------------------------------------------------------------------
+-- 设置 extmark（带 buffer 安全层）
+---------------------------------------------------------------------
 function M:set(bufnr, line, opts)
 	if not self.config.enabled then
 		return nil
 	end
 
-	opts = opts or {}
+	bufnr = normalize_buf(bufnr)
+	if not bufnr then
+		return nil
+	end
 
-	-- 获取或创建命名空间
+	opts = opts or {}
 	local ns = self:_ensure_namespace()
 
-	-- 转换为0-based行号
 	local row = math.max(0, line - 1)
 
-	-- 设置extmark
 	local id = vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, opts)
 
-	-- 如果需要持久化，存储到store
 	if id and self.config.persist_extmarks then
 		local key = string.format("extmarks.%d.%d", bufnr, id)
 		self.store:set(key, {
@@ -60,12 +71,16 @@ function M:set(bufnr, line, opts)
 	return id
 end
 
---- 获取extmarks
---- @param bufnr number 缓冲区编号
---- @param opts table 选项
---- @return table extmarks列表
+---------------------------------------------------------------------
+-- 获取 extmarks（带 buffer 安全层）
+---------------------------------------------------------------------
 function M:get(bufnr, opts)
 	if not self.config.enabled then
+		return {}
+	end
+
+	bufnr = normalize_buf(bufnr)
+	if not bufnr then
 		return {}
 	end
 
@@ -79,7 +94,7 @@ function M:get(bufnr, opts)
 		local id, row, col = unpack(extmark)
 		table.insert(result, {
 			id = id,
-			line = row + 1, -- 转换为1-based
+			line = row + 1,
 			col = col,
 		})
 	end
@@ -87,10 +102,16 @@ function M:get(bufnr, opts)
 	return result
 end
 
---- 清理extmarks
---- @param bufnr number 缓冲区编号
+---------------------------------------------------------------------
+-- 清理 extmarks（带 buffer 安全层）
+---------------------------------------------------------------------
 function M:clear(bufnr)
 	if not self.config.enabled then
+		return
+	end
+
+	bufnr = normalize_buf(bufnr)
+	if not bufnr then
 		return
 	end
 
@@ -98,7 +119,9 @@ function M:clear(bufnr)
 	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 end
 
---- 确保命名空间存在
+---------------------------------------------------------------------
+-- 确保命名空间存在
+---------------------------------------------------------------------
 function M:_ensure_namespace()
 	local ns = self.namespaces[self.config.namespace]
 	if not ns then
@@ -108,10 +131,16 @@ function M:_ensure_namespace()
 	return ns
 end
 
---- 加载持久化的extmarks
---- @param bufnr number 缓冲区编号
+---------------------------------------------------------------------
+-- 加载持久化 extmarks（带 buffer 安全层）
+---------------------------------------------------------------------
 function M:load_persisted(bufnr)
 	if not self.config.enabled or not self.config.persist_extmarks then
+		return
+	end
+
+	bufnr = normalize_buf(bufnr)
+	if not bufnr then
 		return
 	end
 
@@ -121,19 +150,24 @@ function M:load_persisted(bufnr)
 		if key:match("^" .. bufnr .. "%.") then
 			local extmark_data = self.store:get("extmarks." .. key)
 			if extmark_data and extmark_data.line then
-				self:set(extmark_data.bufnr, extmark_data.line, extmark_data.opts)
+				local b = normalize_buf(extmark_data.bufnr)
+				if b then
+					self:set(b, extmark_data.line, extmark_data.opts)
+				end
 			end
 		end
 	end
 end
 
---- 清理资源
+---------------------------------------------------------------------
+-- 清理资源（带 buffer 安全层）
+---------------------------------------------------------------------
 function M:cleanup()
-	-- 清理所有命名空间
-	for ns_name, ns in pairs(self.namespaces) do
+	for _, ns in pairs(self.namespaces) do
 		for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-			if vim.api.nvim_buf_is_valid(bufnr) then
-				vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+			local b = normalize_buf(bufnr)
+			if b then
+				vim.api.nvim_buf_clear_namespace(b, ns, 0, -1)
 			end
 		end
 	end

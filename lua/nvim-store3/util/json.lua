@@ -1,18 +1,5 @@
--- lua/nvim-store/util/json.lua
--- JSON 文件读写工具（升级版：API 不变 + 更安全 + 原子写入）
---
--- 提供（与旧版完全一致）：
---   Json.load(path)
---   Json.save(path, data)
---   Json.get(path, key)
---   Json.set(path, key, value)
---   Json.delete(path, key)
---
--- 升级内容：
---   - 自动创建目录
---   - 安全 JSON 解码（不会抛错）
---   - 原子写入（避免文件损坏）
---   - 与增量写入体系兼容（store.lua / symbol_index.lua）
+-- lua/nvim-store3/util/json.lua
+-- JSON 文件读写工具（升级版：安全 + 原子写入）
 
 local Json = {}
 
@@ -66,35 +53,6 @@ function Json.save(path, data)
 
 	vim.fn.rename(tmp, path)
 	return true
-end
-
----------------------------------------------------------------------
--- 兼容旧 API：get(path, key)
----------------------------------------------------------------------
-function Json.get(path, key)
-	local data = Json.load(path)
-	return data[key]
-end
-
----------------------------------------------------------------------
--- 兼容旧 API：set(path, key, value)
----------------------------------------------------------------------
-function Json.set(path, key, value)
-	local data = Json.load(path)
-	data[key] = value
-	return Json.save(path, data)
-end
-
----------------------------------------------------------------------
--- 兼容旧 API：delete(path, key)
----------------------------------------------------------------------
-function Json.delete(path, key)
-	local data = Json.load(path)
-	if data[key] == nil then
-		return false
-	end
-	data[key] = nil
-	return Json.save(path, data)
 end
 
 return Json

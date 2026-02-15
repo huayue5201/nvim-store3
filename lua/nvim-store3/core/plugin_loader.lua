@@ -1,8 +1,10 @@
--- 重构版插件加载器 - 专业插件配置系统
+-- nvim-store3/core/plugin_loader.lua
+-- 插件加载器（精简版）
+
 local M = {}
 
 ---------------------------------------------------------------------
--- 核心插件注册表 - 只包含基础设施插件
+-- 核心插件注册表
 ---------------------------------------------------------------------
 M.registry = {
 	basic_cache = "nvim-store3.features.basic_cache",
@@ -19,12 +21,11 @@ function M.new(store, config)
 		plugins = {},
 		_loaded = {},
 	}
-
 	return setmetatable(self, { __index = M })
 end
 
 ---------------------------------------------------------------------
--- 加载所有插件（只从 config.plugins 读取）
+-- 加载所有插件
 ---------------------------------------------------------------------
 function M:load_plugins()
 	local plugin_cfg = self.config.plugins or {}
@@ -36,7 +37,6 @@ function M:load_plugins()
 		if plugin_config == true then
 			plugin_config = {}
 		end
-
 		if plugin_config ~= false and plugin_config ~= nil then
 			self:load_plugin(plugin_name, plugin_config)
 		end
@@ -94,20 +94,6 @@ function M:unload_plugin(plugin_name)
 	self.store[plugin_name] = nil
 	self.plugins[plugin_name] = nil
 	self._loaded[plugin_name] = nil
-end
-
----------------------------------------------------------------------
--- 获取插件
----------------------------------------------------------------------
-function M:get_plugin(plugin_name)
-	return self.plugins[plugin_name]
-end
-
----------------------------------------------------------------------
--- 检查插件是否已加载
----------------------------------------------------------------------
-function M:has_plugin(plugin_name)
-	return self._loaded[plugin_name] or false
 end
 
 ---------------------------------------------------------------------
