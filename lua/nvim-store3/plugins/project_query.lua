@@ -1,5 +1,5 @@
 -- lua/nvim-store3/plugins/project_query.lua
--- 项目数据查询插件（修复缩进 + 格式化选择框）
+-- 项目数据查询插件（修复版：实时统计 + 格式化显示）
 
 local M = {}
 
@@ -33,6 +33,24 @@ end
 -- 获取命名空间下的键数量
 function M:get_key_count(namespace)
 	return #self.store:namespace_keys(namespace)
+end
+
+-- 获取所有命名空间的实时计数
+function M:get_namespaces_with_counts()
+	local namespaces = self:get_namespaces()
+	local items = {}
+
+	for _, ns in ipairs(namespaces) do
+		local count = self:get_key_count(ns) -- 实时获取最新计数
+		local display = string.format("%-20s • %d", ns, count)
+		table.insert(items, {
+			ns = ns,
+			count = count,
+			display = display,
+		})
+	end
+
+	return items
 end
 
 -- 格式化 JSON（纯Lua实现）
@@ -175,27 +193,17 @@ function M:show_json(namespace)
 	vim.api.nvim_buf_set_keymap(buf, "n", "<ESC>", "<cmd>close<CR>", { noremap = true, silent = true })
 end
 
--- 交互式选择命名空间
+-- 交互式选择命名空间（带实时刷新）
 function M:select_namespace()
-	local namespaces = self:get_namespaces()
+	-- 实时获取最新数据
+	local items = self:get_namespaces_with_counts()
 
-	if #namespaces == 0 then
+	if #items == 0 then
 		vim.notify("当前项目没有数据", vim.log.levels.INFO)
 		return
 	end
 
-	-- 格式化选项
-	local items = {}
-	for _, ns in ipairs(namespaces) do
-		local count = self:get_key_count(ns)
-		-- 固定宽度20，后面跟圆点和数量
-		local display = string.format("%-20s • %d", ns, count)
-		table.insert(items, {
-			ns = ns,
-			display = display,
-		})
-	end
-
+	-- 创建选择器，每次打开都重新获取数据
 	vim.ui.select(items, {
 		prompt = "选择命名空间查看数据",
 		format_item = function(item)
@@ -203,6 +211,12 @@ function M:select_namespace()
 		end,
 	}, function(choice)
 		if choice then
+			-- 在显示前再次确认数据是否还存在
+			local current_count = self:get_key_count(choice.ns)
+			if current_count == 0 then
+				vim.notify(string.format("命名空间 '%s' 的数据已被删除", choice.ns), vim.log.levels.WARN)
+				return
+			end
 			self:show_json(choice.ns)
 		end
 	end)
