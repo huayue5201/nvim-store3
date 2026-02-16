@@ -7,8 +7,8 @@ local M = {}
 -- 核心插件注册表
 ---------------------------------------------------------------------
 M.registry = {
-	basic_cache = "nvim-store3.features.basic_cache",
-	extmarks = "nvim-store3.features.extmarks",
+	basic_cache = "nvim-store3.plugins.basic_cache",
+	project_query = "nvim-store3.plugins.project_query",
 }
 
 ---------------------------------------------------------------------
