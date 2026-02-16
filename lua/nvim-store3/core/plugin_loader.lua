@@ -9,6 +9,7 @@ local M = {}
 M.registry = {
 	basic_cache = "nvim-store3.plugins.basic_cache",
 	project_query = "nvim-store3.plugins.project_query",
+	project_delete = "nvim-store3.plugins.project_delete",
 }
 
 ---------------------------------------------------------------------
