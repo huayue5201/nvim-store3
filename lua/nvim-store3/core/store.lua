@@ -123,12 +123,18 @@ function Store:keys()
 end
 
 function Store:namespace_keys(namespace)
+	if not namespace or namespace == "" then
+		return {}
+	end
+
 	local all_keys = self:keys()
 	local result = {}
 	local prefix = namespace .. "."
 
+	-- 使用原始键名（已解码）进行匹配
 	for _, key in ipairs(all_keys) do
 		if key:sub(1, #prefix) == prefix then
+			-- 返回去掉命名空间前缀的部分
 			table.insert(result, key:sub(#prefix + 1))
 		end
 	end
@@ -196,6 +202,41 @@ end
 
 function Store:get_auto_encode()
 	return self._auto_encode
+end
+
+---------------------------------------------------------------------
+-- 添加路径查询功能（新增）
+---------------------------------------------------------------------
+function Store:query(path)
+	if not path or path == "" then
+		return nil
+	end
+
+	-- 解析路径：notes.today.1
+	local parts = vim.split(path, ".", { plain = true })
+	local current = self._data
+
+	for i, part in ipairs(parts) do
+		if i == 1 then
+			-- 第一级从存储获取
+			local value = self:get(part)
+			if value == nil then
+				return nil
+			end
+			current = value
+		else
+			-- 后续级从当前 table 获取
+			if type(current) ~= "table" then
+				return nil
+			end
+			current = current[part]
+			if current == nil then
+				return nil
+			end
+		end
+	end
+
+	return current
 end
 
 ---------------------------------------------------------------------
