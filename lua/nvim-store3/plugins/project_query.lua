@@ -1,5 +1,5 @@
 -- lua/nvim-store3/plugins/project_query.lua
--- 项目数据查询插件（修复缩进）
+-- 项目数据查询插件（修复缩进 + 格式化选择框）
 
 local M = {}
 
@@ -28,6 +28,11 @@ function M:get_namespaces()
 
 	table.sort(namespaces)
 	return namespaces
+end
+
+-- 获取命名空间下的键数量
+function M:get_key_count(namespace)
+	return #self.store:namespace_keys(namespace)
 end
 
 -- 格式化 JSON（纯Lua实现）
@@ -126,11 +131,6 @@ function M:show_json(namespace)
 	-- 格式化
 	local lines = self:pretty_json(data)
 
-	-- 调试：打印实际的行内容
-	-- for i, line in ipairs(lines) do
-	--     print(string.format("Line %d: '%s'", i, line))
-	-- end
-
 	-- 计算最佳宽度和高度
 	local max_line_length = 0
 	for _, line in ipairs(lines) do
@@ -184,14 +184,26 @@ function M:select_namespace()
 		return
 	end
 
-	vim.ui.select(namespaces, {
+	-- 格式化选项
+	local items = {}
+	for _, ns in ipairs(namespaces) do
+		local count = self:get_key_count(ns)
+		-- 固定宽度20，后面跟圆点和数量
+		local display = string.format("%-20s • %d", ns, count)
+		table.insert(items, {
+			ns = ns,
+			display = display,
+		})
+	end
+
+	vim.ui.select(items, {
 		prompt = "选择命名空间查看数据",
 		format_item = function(item)
-			return item
+			return item.display
 		end,
 	}, function(choice)
 		if choice then
-			self:show_json(choice)
+			self:show_json(choice.ns)
 		end
 	end)
 end
