@@ -4,9 +4,34 @@
 local M = {}
 
 function M.new(store)
-	local self = { store = store }
+	local self = {
+		store = store,
+		-- 新增：缓存命名空间计数，用于快速访问
+		namespace_counts = {},
+		-- 新增：标记是否需要刷新计数
+		need_refresh = true,
+	}
 	setmetatable(self, { __index = M })
+
+	-- 新增：监听存储事件，数据变化时标记需要刷新
+	self:_setup_event_listeners()
+
 	return self
+end
+
+-- 新增：设置事件监听器
+function M:_setup_event_listeners()
+	local store = self.store
+	-- 监听数据写入/删除/刷新事件
+	store:on("set", function()
+		self.need_refresh = true
+	end)
+	store:on("delete", function()
+		self.need_refresh = true
+	end)
+	store:on("flush", function()
+		self.need_refresh = true
+	end)
 end
 
 -- 获取所有命名空间
@@ -30,18 +55,38 @@ function M:get_namespaces()
 	return namespaces
 end
 
--- 获取命名空间下的键数量
+-- 获取命名空间下的键数量（优化：带缓存）
 function M:get_key_count(namespace)
-	return #self.store:namespace_keys(namespace)
+	-- 如果需要刷新，重新计算所有计数
+	if self.need_refresh then
+		self:_refresh_all_counts()
+	end
+	return self.namespace_counts[namespace] or 0
+end
+
+-- 新增：刷新所有命名空间的计数
+function M:_refresh_all_counts()
+	local namespaces = self:get_namespaces()
+	local counts = {}
+
+	for _, ns in ipairs(namespaces) do
+		counts[ns] = #self.store:namespace_keys(ns)
+	end
+
+	self.namespace_counts = counts
+	self.need_refresh = false
 end
 
 -- 获取所有命名空间的实时计数
 function M:get_namespaces_with_counts()
+	-- 强制刷新最新计数
+	self:_refresh_all_counts()
+
 	local namespaces = self:get_namespaces()
 	local items = {}
 
 	for _, ns in ipairs(namespaces) do
-		local count = self:get_key_count(ns) -- 实时获取最新计数
+		local count = self.namespace_counts[ns] or 0
 		local display = string.format("%-20s • %d", ns, count)
 		table.insert(items, {
 			ns = ns,
@@ -195,7 +240,7 @@ end
 
 -- 交互式选择命名空间（带实时刷新）
 function M:select_namespace()
-	-- 实时获取最新数据
+	-- 实时获取最新数据（强制刷新）
 	local items = self:get_namespaces_with_counts()
 
 	if #items == 0 then
