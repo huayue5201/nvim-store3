@@ -128,9 +128,11 @@ function M:pretty_json(data, indent)
 			table.insert(lines, indent .. "[")
 			for i, v in ipairs(data) do
 				local sub_lines = self:pretty_json(v, indent .. "  ")
+				-- 将子行添加到结果中
 				for j, line in ipairs(sub_lines) do
 					table.insert(lines, line)
 				end
+				-- 在最后一个子行后添加逗号
 				if i < #data then
 					lines[#lines] = lines[#lines] .. ","
 				end
@@ -149,18 +151,20 @@ function M:pretty_json(data, indent)
 				local v = data[k]
 				local sub_lines = self:pretty_json(v, indent .. "  ")
 
-				-- 第一个子行合并到键名行
+				-- 修复：确保正确处理多行值
 				if #sub_lines == 1 then
-					-- 单行值，直接合并
-					table.insert(lines, indent .. '  "' .. k .. '": ' .. sub_lines[1]:match("^%s*(.+)$"))
+					-- 单行值：直接合并到同一行
+					local value_line = sub_lines[1]:match("^%s*(.+)$") or sub_lines[1]
+					table.insert(lines, indent .. '  "' .. k .. '": ' .. value_line)
 				else
-					-- 多行值，键名单独一行
-					table.insert(lines, indent .. '  "' .. k .. '": ')
+					-- 多行值：键名单独一行，然后添加值
+					table.insert(lines, indent .. '  "' .. k .. '":')
 					for j, line in ipairs(sub_lines) do
 						table.insert(lines, line)
 					end
 				end
 
+				-- 在最后一个子行后添加逗号
 				if i < #keys then
 					lines[#lines] = lines[#lines] .. ","
 				end
@@ -168,7 +172,9 @@ function M:pretty_json(data, indent)
 			table.insert(lines, indent .. "}")
 		end
 	elseif type(data) == "string" then
-		table.insert(lines, indent .. '"' .. data .. '"')
+		-- 转义字符串中的特殊字符，特别是换行符
+		local escaped = data:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t")
+		table.insert(lines, indent .. '"' .. escaped .. '"')
 	elseif type(data) == "number" or type(data) == "boolean" then
 		table.insert(lines, indent .. tostring(data))
 	elseif data == nil then
