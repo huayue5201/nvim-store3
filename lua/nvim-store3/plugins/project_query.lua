@@ -1,53 +1,40 @@
 -- lua/nvim-store3/plugins/project_query.lua
--- 项目数据查询插件（修复版：实时统计 + 格式化显示）
-
 local M = {}
 
 function M.new(store)
 	local self = {
 		store = store,
-		-- 新增：缓存命名空间计数，用于快速访问
-		namespace_counts = {},
-		-- 新增：标记是否需要刷新计数
 		need_refresh = true,
+		namespace_counts = {},
 	}
 	setmetatable(self, { __index = M })
 
-	-- 新增：监听存储事件，数据变化时标记需要刷新
-	self:_setup_event_listeners()
+	-- 只在有效存储时监听事件
+	if not store._noop then
+		store:on("set", function()
+			self.need_refresh = true
+		end)
+		store:on("delete", function()
+			self.need_refresh = true
+		end)
+	end
 
 	return self
 end
 
--- 新增：设置事件监听器
-function M:_setup_event_listeners()
-	local store = self.store
-	-- 监听数据写入/删除/刷新事件
-	store:on("set", function()
-		self.need_refresh = true
-	end)
-	store:on("delete", function()
-		self.need_refresh = true
-	end)
-	store:on("flush", function()
-		self.need_refresh = true
-	end)
-end
-
--- 获取所有命名空间
 function M:get_namespaces()
+	if self.store._noop then
+		return {}
+	end
+
 	local keys = self.store:keys()
-	local namespaces = {}
-	local ns_set = {}
+	local namespaces, seen = {}, {}
 
 	for _, key in ipairs(keys) do
-		local dot_pos = key:find("%.")
-		if dot_pos then
-			local ns = key:sub(1, dot_pos - 1)
-			if not ns_set[ns] then
-				ns_set[ns] = true
-				table.insert(namespaces, ns)
-			end
+		local ns = key:match("^([^%.]+)")
+		if ns and not seen[ns] then
+			seen[ns] = true
+			table.insert(namespaces, ns)
 		end
 	end
 
@@ -55,67 +42,36 @@ function M:get_namespaces()
 	return namespaces
 end
 
--- 获取命名空间下的键数量（优化：带缓存）
-function M:get_key_count(namespace)
-	-- 如果需要刷新，重新计算所有计数
-	if self.need_refresh then
-		self:_refresh_all_counts()
+function M:_refresh_counts()
+	if self.store._noop then
+		return
 	end
-	return self.namespace_counts[namespace] or 0
-end
 
--- 新增：刷新所有命名空间的计数
-function M:_refresh_all_counts()
 	local namespaces = self:get_namespaces()
-	local counts = {}
-
 	for _, ns in ipairs(namespaces) do
-		counts[ns] = #self.store:namespace_keys(ns)
+		self.namespace_counts[ns] = #self.store:namespace_keys(ns)
 	end
-
-	self.namespace_counts = counts
 	self.need_refresh = false
 end
 
--- 获取所有命名空间的实时计数
-function M:get_namespaces_with_counts()
-	-- 强制刷新最新计数
-	self:_refresh_all_counts()
-
-	local namespaces = self:get_namespaces()
-	local items = {}
-
-	for _, ns in ipairs(namespaces) do
-		local count = self.namespace_counts[ns] or 0
-		local display = string.format("%-20s • %d", ns, count)
-		table.insert(items, {
-			ns = ns,
-			count = count,
-			display = display,
-		})
-	end
-
-	return items
-end
-
--- 格式化 JSON（纯Lua实现）
-function M:pretty_json(data, indent)
+-- 格式化 JSON（纯 Lua 实现，不依赖 json_encode）
+function M:_format_json(data, indent)
 	indent = indent or ""
 	local lines = {}
 
 	if type(data) == "table" then
-		-- 判断是数组还是对象
+		-- 判断是否是数组
 		local is_array = true
-		local max_index = 0
+		local max_idx = 0
 		for k, _ in pairs(data) do
 			if type(k) ~= "number" then
 				is_array = false
 				break
 			end
-			max_index = math.max(max_index, k)
+			max_idx = math.max(max_idx, k)
 		end
 		if is_array then
-			for i = 1, max_index do
+			for i = 1, max_idx do
 				if data[i] == nil then
 					is_array = false
 					break
@@ -127,12 +83,10 @@ function M:pretty_json(data, indent)
 			-- 数组格式
 			table.insert(lines, indent .. "[")
 			for i, v in ipairs(data) do
-				local sub_lines = self:pretty_json(v, indent .. "  ")
-				-- 将子行添加到结果中
-				for j, line in ipairs(sub_lines) do
+				local sub_lines = self:_format_json(v, indent .. "  ")
+				for _, line in ipairs(sub_lines) do
 					table.insert(lines, line)
 				end
-				-- 在最后一个子行后添加逗号
 				if i < #data then
 					lines[#lines] = lines[#lines] .. ","
 				end
@@ -149,22 +103,20 @@ function M:pretty_json(data, indent)
 
 			for i, k in ipairs(keys) do
 				local v = data[k]
-				local sub_lines = self:pretty_json(v, indent .. "  ")
+				local sub_lines = self:_format_json(v, indent .. "  ")
 
-				-- 修复：确保正确处理多行值
 				if #sub_lines == 1 then
-					-- 单行值：直接合并到同一行
+					-- 单行值
 					local value_line = sub_lines[1]:match("^%s*(.+)$") or sub_lines[1]
 					table.insert(lines, indent .. '  "' .. k .. '": ' .. value_line)
 				else
-					-- 多行值：键名单独一行，然后添加值
+					-- 多行值
 					table.insert(lines, indent .. '  "' .. k .. '":')
-					for j, line in ipairs(sub_lines) do
+					for _, line in ipairs(sub_lines) do
 						table.insert(lines, line)
 					end
 				end
 
-				-- 在最后一个子行后添加逗号
 				if i < #keys then
 					lines[#lines] = lines[#lines] .. ","
 				end
@@ -172,7 +124,7 @@ function M:pretty_json(data, indent)
 			table.insert(lines, indent .. "}")
 		end
 	elseif type(data) == "string" then
-		-- 转义字符串中的特殊字符，特别是换行符
+		-- 转义字符串
 		local escaped = data:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t")
 		table.insert(lines, indent .. '"' .. escaped .. '"')
 	elseif type(data) == "number" or type(data) == "boolean" then
@@ -186,41 +138,37 @@ function M:pretty_json(data, indent)
 	return lines
 end
 
--- 显示格式化的数据
 function M:show_json(namespace)
+	if self.store._noop then
+		vim.notify("当前不在项目目录中", vim.log.levels.WARN)
+		return
+	end
+
 	-- 获取命名空间下的所有数据
 	local keys = self.store:namespace_keys(namespace)
 	local data = {}
-
 	for _, key in ipairs(keys) do
-		local full_key = namespace .. "." .. key
-		data[key] = self.store:get(full_key)
+		data[key] = self.store:get(namespace .. "." .. key)
 	end
 
-	-- 格式化
-	local lines = self:pretty_json(data)
+	-- 格式化 JSON
+	local lines = self:_format_json(data)
 
-	-- 计算最佳宽度和高度
-	local max_line_length = 0
+	-- 计算窗口尺寸
+	local max_line_len = 0
 	for _, line in ipairs(lines) do
-		max_line_length = math.max(max_line_length, #line)
+		max_line_len = math.max(max_line_len, #line)
 	end
 
-	-- 宽度：最长行 + 4（边框），不超过屏幕宽度
-	local width = math.min(max_line_length + 4, vim.o.columns - 4)
-
-	-- 高度：行数 + 4（边框+标题），不超过屏幕高度
+	local width = math.min(max_line_len + 4, vim.o.columns - 4)
 	local height = math.min(#lines + 4, vim.o.lines - 4)
 
 	-- 创建浮窗
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-
-	-- 设置语法高亮
 	vim.bo[buf].filetype = "json"
 	vim.bo[buf].modifiable = false
 
-	-- 创建窗口（自动居中）
 	local win = vim.api.nvim_open_win(buf, true, {
 		relative = "editor",
 		width = width,
@@ -239,22 +187,37 @@ function M:show_json(namespace)
 	vim.wo[win].number = true
 	vim.wo[win].relativenumber = false
 
-	-- 按 q 关闭
+	-- 按键映射
 	vim.api.nvim_buf_set_keymap(buf, "n", "q", "<cmd>close<CR>", { noremap = true, silent = true })
 	vim.api.nvim_buf_set_keymap(buf, "n", "<ESC>", "<cmd>close<CR>", { noremap = true, silent = true })
 end
 
--- 交互式选择命名空间（带实时刷新）
 function M:select_namespace()
-	-- 实时获取最新数据（强制刷新）
-	local items = self:get_namespaces_with_counts()
-
-	if #items == 0 then
-		vim.notify("当前项目没有数据", vim.log.levels.INFO)
+	if self.store._noop then
+		vim.notify("当前不在项目目录中", vim.log.levels.WARN)
 		return
 	end
 
-	-- 创建选择器，每次打开都重新获取数据
+	if self.need_refresh then
+		self:_refresh_counts()
+	end
+
+	local items = {}
+	for ns, count in pairs(self.namespace_counts) do
+		table.insert(items, {
+			ns = ns,
+			display = string.format("%-20s • %d", ns, count),
+		})
+	end
+	table.sort(items, function(a, b)
+		return a.ns < b.ns
+	end)
+
+	if #items == 0 then
+		vim.notify("没有数据", vim.log.levels.INFO)
+		return
+	end
+
 	vim.ui.select(items, {
 		prompt = "选择命名空间查看数据",
 		format_item = function(item)
@@ -262,8 +225,8 @@ function M:select_namespace()
 		end,
 	}, function(choice)
 		if choice then
-			-- 在显示前再次确认数据是否还存在
-			local current_count = self:get_key_count(choice.ns)
+			-- 显示前再次验证数据是否存在
+			local current_count = self.namespace_counts[choice.ns] or 0
 			if current_count == 0 then
 				vim.notify(string.format("命名空间 '%s' 的数据已被删除", choice.ns), vim.log.levels.WARN)
 				return
@@ -279,9 +242,7 @@ function M.setup()
 		local store = require("nvim-store3").project()
 		local query = M.new(store)
 		query:select_namespace()
-	end, {
-		desc = "选择命名空间并查看格式化的数据",
-	})
+	end, { desc = "查看存储数据" })
 end
 
 return M
