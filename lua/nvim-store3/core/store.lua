@@ -220,15 +220,8 @@ function Store:flush()
 	return ok
 end
 
---- 获取存储统计信息
+--- 获取存储统计信息（优化版：只从缓存读取，不触发后端）
 --- @return table 统计信息
---- @return number total_keys 总键数
---- @return number encoded_keys 编码键数
---- @return number cache_size 缓存大小
---- @return number estimated_size 估算大小（字节）
---- @return string scope 作用域
---- @return boolean auto_encode_enabled 自动编码是否启用
---- @return boolean noop 是否为空操作实例
 function Store:get_stats()
 	if self._noop then
 		return {
@@ -246,22 +239,26 @@ function Store:get_stats()
 	local total_size = 0
 	local encoded_keys = 0
 
+	-- 只从缓存读取，避免触发后端 IO
 	for _, key in ipairs(keys) do
-		local value = self:get(key)
-		if value then
-			total_size = total_size + #vim.fn.json_encode(value)
-		end
-
 		local safe_key = Path.encode_key(key)
 		if Path.is_encoded_key(safe_key) then
 			encoded_keys = encoded_keys + 1
+		end
+
+		local value = self._data[safe_key]
+		if value and value ~= NULL_MARKER then
+			local ok, json = pcall(vim.fn.json_encode, value)
+			if ok and json then
+				total_size = total_size + #json
+			end
 		end
 	end
 
 	return {
 		total_keys = #keys,
 		encoded_keys = encoded_keys,
-		cache_size = #vim.tbl_keys(self._data),
+		cache_size = vim.tbl_count(self._data),
 		estimated_size = total_size,
 		scope = self.scope,
 		auto_encode_enabled = self._auto_encode,

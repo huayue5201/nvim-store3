@@ -1,5 +1,5 @@
 -- lua/nvim-store3/util/json.lua
--- JSON 文件读写工具（升级版：安全 + 原子写入）
+-- JSON 文件读写工具（安全 + 原子写入）
 
 local Json = {}
 
@@ -45,13 +45,20 @@ function Json.save(path, data)
 		return false
 	end
 
-	local tmp = path .. ".tmp"
+	-- 使用唯一临时文件名，避免冲突
+	local tmp = path .. ".tmp." .. os.time() .. "." .. math.random(10000)
 	local ok = vim.fn.writefile({ encoded }, tmp) == 0
 	if not ok then
 		return false
 	end
 
-	vim.fn.rename(tmp, path)
+	local rename_ok = vim.fn.rename(tmp, path) == 0
+	if not rename_ok then
+		-- 重命名失败，清理临时文件
+		pcall(vim.fn.delete, tmp)
+		return false
+	end
+
 	return true
 end
 

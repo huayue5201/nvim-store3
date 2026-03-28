@@ -4,17 +4,17 @@
 [![Neovim](https://img.shields.io/badge/Neovim-0.8+-green.svg)](https://neovim.io/)
 [![License](https://img.shields.io/badge/License-MIT-red.svg)](LICENSE)
 
-nvim-store3 是一个专为 Neovim 设计的专业级持久化存储方案，提供跨会话的数据持久化、事件驱动的插件系统、自动编码机制和智能项目识别功能。
+nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会话的数据持久化、事件驱动、自动编码和智能项目识别功能。
 
 ## ✨ 特性
 
-- 🎯 **双作用域存储** - 支持全局存储和项目级存储，数据自动隔离
-- 🧠 **智能项目识别** - 自动识别真实项目目录，避免污染系统目录
-- 🔌 **插件化架构** - 可插拔的插件系统，支持动态加载和卸载
+- 🎯 **双作用域存储** - 全局存储和项目级存储，数据自动隔离
+- 🧠 **智能项目识别** - 自动识别项目根目录，避免污染系统目录
+- 🔌 **插件化架构** - 支持动态加载插件，插件直接挂载到 store 实例
 - 📡 **事件驱动** - 内置事件系统，支持数据变更监听
 - 🔐 **自动编码** - 智能键名编码，确保文件系统兼容性
-- 💾 **原子写入** - JSON 存储后端支持原子写入和自动备份
-- 🧹 **自动清理** - 定期清理空项目、过期项目，控制存储数量
+- 💾 **原子写入** - JSON 后端支持原子写入和自动备份
+- 🧹 **智能清理** - 自动清理空项目、过期项目，磁盘空间不足时自动限制数量
 
 ## 📦 安装
 
@@ -24,7 +24,14 @@ nvim-store3 是一个专为 Neovim 设计的专业级持久化存储方案，提
 {
   "nvim-store3",
   config = function()
-    require("nvim-store3").setup()
+    -- 可选：自定义清理配置
+    require("nvim-store3").setup_cleanup({
+      enabled = true,
+      max_age_days = 90,        -- 90天未访问清理
+      max_count = 50,           -- 最多保留50个项目
+      min_free_space_mb = 100,  -- 磁盘低于100MB时限制数量
+      check_interval_hours = 24 -- 每天检查一次
+    })
   end
 }
 ```
@@ -35,7 +42,7 @@ nvim-store3 是一个专为 Neovim 设计的专业级持久化存储方案，提
 use {
   "nvim-store3",
   config = function()
-    require("nvim-store3").setup()
+    require("nvim-store3").setup_cleanup()
   end
 }
 ```
@@ -74,9 +81,6 @@ project:set("bookmarks", {
   { file = "src/main.lua", line = 10 },
   { file = "src/utils.lua", line = 25 }
 })
-
--- 获取所有书签
-local bookmarks = project:get("bookmarks")
 ```
 
 ### 使用命名空间组织数据
@@ -108,6 +112,8 @@ local note = store:query("notes.today.1")  -- { title = "Meeting notes", ... }
 | `:query(path)` | 路径查询（支持嵌套） | `store:query("notes.today.1")` |
 | `:flush()` | 持久化到磁盘 | `store:flush()` |
 | `:on(event, callback)` | 订阅事件 | `store:on("set", fn)` |
+| `:get_stats()` | 获取统计信息 | `local stats = store:get_stats()` |
+| `:set_auto_encode(bool)` | 设置自动编码 | `store:set_auto_encode(true)` |
 
 ### 事件系统
 
@@ -128,65 +134,67 @@ store:on("flush", function(payload)
 end)
 ```
 
+### 存储统计
+
+```lua
+local stats = store:get_stats()
+print("总键数:", stats.total_keys)
+print("编码键数:", stats.encoded_keys)
+print("缓存大小:", stats.cache_size)
+print("估算大小:", stats.estimated_size, "bytes")
+print("作用域:", stats.scope)
+print("空操作模式:", stats.noop)  -- 系统目录时为 true
+```
+
 ## 🎮 命令
 
-安装后自动提供以下 Neovim 命令：
+安装插件后自动提供以下 Neovim 命令：
 
-| 命令 | 描述 |
-|------|------|
-| `:Store` | 交互式查看项目数据 |
-| `:StoreDelete [namespace]` | 删除指定命名空间的数据 |
-| `:StoreCleanup` | 交互式清理项目存储 |
-| `:StoreCleanup empty` | 清理所有空项目 |
-| `:StoreCleanup expired` | 清理超过30天的项目 |
-| `:StoreCleanup limit` | 限制项目数量（保留100个） |
-| `:StoreCleanup stats` | 查看存储统计信息 |
-| `:StoreInfo` | 显示当前存储信息 |
+| 命令 | 描述 | 来源 |
+|------|------|------|
+| `:Store` | 交互式查看项目数据 | project_query 插件 |
+| `:StoreDelete [namespace]` | 删除命名空间数据 | project_delete 插件 |
 
 ## ⚙️ 配置
 
-### 基础配置
+### 存储配置
 
 ```lua
-require("nvim-store3").setup({
-  auto_cleanup = true,      -- 自动清理（默认启用）
-  cleanup_interval = 3600,  -- 清理间隔（秒），默认1小时
-  max_projects = 100,       -- 最大项目数量
-  expire_days = 30,         -- 项目过期天数
-})
-```
-
-### 自定义存储路径
-
-```lua
--- 修改全局存储路径
-require("nvim-store3").setup({
-  global_path = vim.fn.stdpath("data") .. "/my-store",
-  project_path = vim.fn.stdpath("data") .. "/projects",
-})
-```
-
-### 插件配置
-
-```lua
--- 启用内置插件
+-- 全局存储配置
 local store = require("nvim-store3").global({
-  plugins = {
-    basic_cache = true,     -- 启用 LRU 缓存
-    project_query = true,   -- 启用查询功能
-    project_delete = true,  -- 启用删除功能
-  }
-})
-
--- 配置缓存插件
-local store = require("nvim-store3").global({
+  auto_encode = true,  -- 自动编码键名
+  storage = {
+    backend = "json",
+    flush_delay = 1000,  -- 延迟保存（毫秒）
+  },
   plugins = {
     basic_cache = {
-      default_ttl = 600,    -- 默认缓存10分钟
-      write_through = true, -- 同步写入存储
-      read_through = true,  -- 缓存读取
+      default_ttl = 300,
+      write_through = true,
+      read_through = true,
     }
   }
+})
+```
+
+### 清理系统配置
+
+```lua
+local Cleanup = require("nvim-store3.core.cleanup")
+
+-- 自定义清理配置
+Cleanup.setup({
+  enabled = true,              -- 是否启用自动清理
+  max_age_days = 90,           -- 90天未访问的项目清理
+  max_count = 50,              -- 最多保留50个项目
+  min_free_space_mb = 100,     -- 磁盘低于100MB时限制数量
+  check_interval_hours = 24,   -- 每天检查一次
+})
+
+-- 或通过 init.lua 快捷函数
+require("nvim-store3").setup_cleanup({
+  max_age_days = 60,
+  max_count = 30,
 })
 ```
 
@@ -194,43 +202,68 @@ local store = require("nvim-store3").global({
 
 ### Basic Cache - LRU 缓存插件
 
-提供内存缓存，减少磁盘访问：
-
 ```lua
-local cache = store:get_plugin("basic_cache")
+-- 启用缓存插件
+local store = require("nvim-store3").global({
+  plugins = { basic_cache = true }
+})
 
--- 设置缓存（TTL 可选）
-cache:set("key", "value", 300)  -- 5分钟过期
+local cache = store.basic_cache
+
+-- 设置缓存（可选 TTL）
+cache:set("key", "value", 300)  -- 5分钟后过期
 
 -- 获取缓存
 local value = cache:get("key")
 
+-- 删除缓存
+cache:delete("key")
+
 -- 清理过期项
 cache:cleanup_expired()
+
+-- 获取统计
+local stats = cache:get_stats()  -- { enabled = true, size = 10 }
 ```
+
+**缓存特性**：
+- LRU 淘汰策略
+- TTL 过期机制
+- write-through / read-through 模式
+- 自动清理定时器
 
 ### Project Query - 项目查询插件
 
-提供格式化的数据查看：
-
 ```lua
-local query = store:get_plugin("project_query")
+local store = require("nvim-store3").project({
+  plugins = { project_query = true }
+})
+
+local query = store.project_query
 
 -- 获取所有命名空间
 local namespaces = query:get_namespaces()
 
--- 显示格式化的 JSON
+-- 显示格式化的 JSON 浮窗
 query:show_json("notes")
+
+-- 交互式选择命名空间
+query:select_namespace()
 ```
 
 ### Project Delete - 项目删除插件
 
-安全地删除数据：
-
 ```lua
-local deleter = store:get_plugin("project_delete")
+local store = require("nvim-store3").project({
+  plugins = { project_delete = true }
+})
 
--- 删除命名空间
+local deleter = store.project_delete
+
+-- 获取命名空间列表
+local namespaces = deleter:get_namespaces()
+
+-- 删除命名空间（交互式确认）
 deleter:delete_namespace("notes")
 
 -- 交互式选择删除
@@ -239,7 +272,7 @@ deleter:select_and_delete()
 
 ## 🧩 开发插件
 
-创建自定义插件非常简单：
+### 插件基本结构
 
 ```lua
 -- plugins/my_plugin.lua
@@ -253,12 +286,22 @@ function M.new(store, config)
 
   setmetatable(self, { __index = M })
 
+  -- 空操作实例检查（系统目录时静默返回）
+  if store._noop then
+    return self
+  end
+
   -- 监听事件
   store:on("set", function(payload)
-    print("数据变化:", payload.key)
+    self:on_data_change(payload)
   end)
 
   return self
+end
+
+function M:on_data_change(payload)
+  -- 处理数据变化
+  print("数据已变更:", payload.key)
 end
 
 function M:my_method()
@@ -266,13 +309,14 @@ function M:my_method()
 end
 
 function M:cleanup()
-  -- 清理资源
+  -- 清理资源（卸载时调用）
+  self.store:flush()
 end
 
 return M
 ```
 
-注册并使用插件：
+### 注册并使用插件
 
 ```lua
 -- 注册插件
@@ -281,13 +325,12 @@ require("nvim-store3").register_plugin("my_plugin", "path.to.my_plugin")
 -- 启用插件
 local store = require("nvim-store3").global({
   plugins = {
-    my_plugin = { enabled = true }
+    my_plugin = { enabled = true, custom_option = "value" }
   }
 })
 
--- 使用插件
-local plugin = store:get_plugin("my_plugin")
-plugin:my_method()
+-- 使用插件（直接访问）
+store.my_plugin:my_method()
 ```
 
 ## 🗂️ 存储结构
@@ -300,84 +343,98 @@ plugin:my_method()
 │   └── data.json
 ├── home_user_projects_another/      # 项目 B
 │   └── data.json
-└── ... (最多保留100个项目)
+└── ...
 ```
+
+**项目识别规则**：
+- 向上查找项目标志（.git, package.json, Makefile 等）
+- 系统目录黑名单（/etc, /var, /tmp 等）不创建存储
+- 同一项目无论从哪个子目录进入，使用同一个存储
+
+## 🧹 智能清理策略
+
+nvim-store3 内置智能清理机制，自动管理项目存储：
+
+| 优先级 | 策略 | 条件 | 说明 |
+|--------|------|------|------|
+| 1 | 清理空项目 | 无条件 | data.json 为 {} 的项目最先清理 |
+| 2 | 清理过期项目 | 超过配置天数未访问 | 默认 90 天，可配置 |
+| 3 | 限制数量 | 磁盘空间低于阈值 | 默认 100MB，删除最旧的项目 |
+
+清理时会有通知提示，让用户了解清理情况。
 
 ## 🎯 最佳实践
 
-### 1. 合理组织数据结构
+### 1. 数据组织
 
 ```lua
--- ✅ 好的实践：使用命名空间
+-- ✅ 使用命名空间
 store:set("bookmarks.lua", { line = 10, file = "main.lua" })
 store:set("bookmarks.python", { line = 20, file = "app.py" })
 
--- ❌ 避免：扁平的键名
-store:set("bookmark1", ...)
-store:set("bookmark2", ...)
+-- ✅ 使用嵌套结构
+store:set("config.editor", { theme = "dark", font_size = 14 })
+store:set("config.lsp", { enabled = true, servers = { "lua_ls" } })
 ```
 
-### 2. 使用事件监听实现响应式
+### 2. 性能优化
 
 ```lua
--- 自动保存书签变化
+-- 使用缓存减少磁盘访问
+local store = require("nvim-store3").global({
+  plugins = { basic_cache = { default_ttl = 60 } }
+})
+
+-- 批量读取使用 namespace_keys
+local bookmarks = {}
+for _, key in ipairs(store:namespace_keys("bookmarks")) do
+  bookmarks[key] = store:get("bookmarks." .. key)
+end
+```
+
+### 3. 事件监听
+
+```lua
+-- 自动保存数据变更日志
 store:on("set", function(payload)
-  if payload.key:match("^bookmarks%.") then
-    vim.notify("Bookmark updated: " .. payload.key)
-  end
+  vim.notify(string.format("[Store] %s = %s", payload.key, vim.inspect(payload.value)))
 end)
-```
-
-### 3. 合理使用缓存
-
-```lua
--- 对于频繁读取的数据使用缓存插件
-local cache = store:get_plugin("basic_cache")
-cache:set("frequent_data", data, 60)  -- 缓存1分钟
 ```
 
 ## 🐛 故障排除
 
 ### 数据保存失败
-```bash
-# 检查目录权限
-ls -la ~/.cache/nvim-store/
 
-# 手动创建目录
-mkdir -p ~/.cache/nvim-store
-```
-
-### 插件加载失败
 ```lua
--- 检查插件是否注册
-local registry = require("nvim-store3.core.plugin_loader").registry
-print(vim.inspect(registry))
+-- 检查路径
+local Path = require("nvim-store3.util.path")
+print("Global path:", Path.global_store_path())
+print("Project path:", Path.project_store_path())
+
+-- 手动触发保存
+store:flush()
 ```
 
-### 项目识别不正确
+### 项目识别问题
+
 ```lua
 -- 调试项目根目录
 local Path = require("nvim-store3.util.path")
 print("Project root:", Path.project_root())
-print("Store path:", Path.project_store_path())
+print("Project key:", Path.project_key())
 ```
 
-## 📊 性能优化
+### 清理统计
 
-- 使用 `basic_cache` 插件减少磁盘访问
-- 配置 `flush_delay` 合并多次写入
-- 使用 `namespace_keys` 批量操作
-- 利用事件系统而非轮询
-
-## 🤝 贡献
-
-欢迎提交 Pull Request 或 Issue！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing`)
-3. 提交更改 (`git commit -m 'Add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing`)
-5. 创建 Pull Request
+```lua
+local Cleanup = require("nvim-store3.core.cleanup")
+local stats = Cleanup.get_stats()
+print(string.format("项目总数: %d, 总大小: %.2f MB",
+  stats.total_projects, stats.total_size_mb))
+print(string.format("空项目: %d, 过期项目: %d",
+  stats.empty_projects, stats.expired_projects))
+print(string.format("磁盘剩余: %.2f MB", stats.free_space_mb))
+```
 
 ## 📄 许可证
 

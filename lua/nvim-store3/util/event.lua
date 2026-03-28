@@ -1,15 +1,15 @@
--- lua/nvim-store/core/event.lua
+-- lua/nvim-store3/util/event.lua
 -- 事件系统（Event Emitter）
 --
 -- 设计目标：
---   - 为 nvim-store 提供统一的事件发布/订阅机制
+--   - 为 nvim-store3 提供统一的事件发布/订阅机制
 --   - 支持多事件类型（change / flush / note_update）
 --   - 支持多个回调（订阅者）
 --   - store.lua 可在任意位置 emit(event, payload)
 --   - 外部插件可通过 store:on(event, callback) 订阅
 --
 -- 使用方式：
---   local Event = require("nvim-store3.core.event")
+--   local Event = require("nvim-store3.util.event")
 --   local ev = Event.new()
 --   ev:on("change", function(payload) ... end)
 --   ev:emit("change", { key = "foo" })
