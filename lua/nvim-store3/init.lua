@@ -1,14 +1,9 @@
 -- nvim-store3/init.lua
--- 专业版入口文件（统一配置结构 + 插件系统）
-
 local M = {}
 
 local global_instance = nil
 local project_instance = nil
 
----------------------------------------------------------------------
--- 创建默认配置
----------------------------------------------------------------------
 local function default_config(scope, Path)
 	return {
 		scope = scope,
@@ -17,75 +12,44 @@ local function default_config(scope, Path)
 			backend = "json",
 			flush_delay = 1000,
 		},
-
-		-- 自动编码（推荐开启）
 		auto_encode = true,
-
-		-- 插件配置（用户可覆盖）
-		plugins = {
-			-- basic_cache = true,
-			-- extmarks = { persist_extmarks = true },
-		},
+		plugins = {},
 	}
 end
 
----------------------------------------------------------------------
--- 获取全局存储实例
----------------------------------------------------------------------
 function M.global(opts)
 	if not global_instance then
 		local Store = require("nvim-store3.core.store")
 		local Path = require("nvim-store3.util.path")
-
-		local config = default_config("global", Path)
-
+		global_instance = Store.new(default_config("global", Path))
 		if opts then
-			config = vim.tbl_deep_extend("force", config, opts)
+			global_instance = vim.tbl_deep_extend("force", global_instance, opts)
 		end
-
-		global_instance = Store.new(config)
 	end
-
 	return global_instance
 end
 
----------------------------------------------------------------------
--- 获取项目存储实例
----------------------------------------------------------------------
 function M.project(opts)
 	if not project_instance then
 		local Store = require("nvim-store3.core.store")
 		local Path = require("nvim-store3.util.path")
-
-		local config = default_config("project", Path)
-
+		project_instance = Store.new(default_config("project", Path))
 		if opts then
-			config = vim.tbl_deep_extend("force", config, opts)
+			project_instance = vim.tbl_deep_extend("force", project_instance, opts)
 		end
-
-		project_instance = Store.new(config)
 	end
-
 	return project_instance
 end
 
----------------------------------------------------------------------
--- 获取可用插件列表
----------------------------------------------------------------------
 function M.get_available_plugins()
 	local PluginLoader = require("nvim-store3.core.plugin_loader")
 	local plugins = {}
-
 	for name, _ in pairs(PluginLoader.registry) do
 		table.insert(plugins, name)
 	end
-
 	return plugins
 end
 
----------------------------------------------------------------------
--- 清理所有实例
----------------------------------------------------------------------
 function M.clear()
 	if global_instance then
 		global_instance:cleanup()
@@ -97,12 +61,11 @@ function M.clear()
 	end
 end
 
----------------------------------------------------------------------
--- 注册自定义插件
----------------------------------------------------------------------
 function M.register_plugin(plugin_name, module_path)
-	local PluginLoader = require("nvim-store3.core.plugin_loader")
-	PluginLoader.registry[plugin_name] = module_path
+	require("nvim-store3.core.plugin_loader").registry[plugin_name] = module_path
 end
+
+-- 自动启动清理
+require("nvim-store3.util.path")._start_auto_cleanup()
 
 return M

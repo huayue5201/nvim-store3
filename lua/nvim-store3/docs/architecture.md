@@ -1,61 +1,68 @@
+```markdown
 # nvim-store3 技术说明文档
 
 ## 1. 项目概述
 
-nvim-store3 是一个专为 Neovim 设计的专业级持久化存储解决方案，提供跨会话的数据持久化、事件驱动的插件系统、自动编码机制和实时数据验证功能。
+nvim-store3 是一个专为 Neovim 设计的专业级持久化存储解决方案，提供跨会话的数据持久化、事件驱动的插件系统、自动编码机制和智能项目识别功能。
 
 ### 1.1 核心特性
 
 - **双作用域存储**：支持全局存储和项目级存储
+- **智能项目识别**：自动识别真实项目目录，避免污染系统目录
 - **插件化架构**：可插拔的插件系统，支持动态加载和卸载
 - **事件驱动**：内置事件系统，支持数据变更监听
 - **自动编码**：智能键名编码，确保文件系统兼容性
-- **实时验证**：数据操作实时验证，防止竞态条件
 - **原子写入**：JSON 存储后端支持原子写入和自动备份
+- **自动清理**：定期清理空项目、过期项目，控制存储数量
 
 ## 2. 系统架构
 
 ### 2.1 架构图
 
 ```
-┌─────────────────────────────────────────────┐
-│                nvim-store3                    │
-├─────────────────────────────────────────────┤
-│  ┌─────────┐  ┌─────────┐  ┌─────────────┐ │
-│  │  Global  │  │ Project │  │   Plugins   │ │
-│  │  Store   │  │  Store  │  │   System    │ │
-│  └────┬────┘  └────┬────┘  └──────┬──────┘ │
-│       │            │               │        │
-│  ┌────┴────────────┴───────────────┴─────┐ │
-│  │              Core Store                │ │
-│  │  ┌────────┐  ┌────────┐  ┌────────┐   │ │
-│  │  │  Data  │  │ Events │  │ Plugin │   │ │
-│  │  │ Cache  │  │ System │  │ Loader │   │ │
-│  │  └────────┘  └────────┘  └────────┘   │ │
-│  └────────────────────────────────────────┘ │
-│                     │                        │
-│  ┌────────────────────────────────────┐     │
-│  │        Storage Backends            │     │
-│  │  ┌────────────┐ ┌────────────┐    │     │
-│  │  │   JSON     │ │   Memory   │    │     │
-│  │  │  Backend   │ │  Backend   │    │     │
-│  │  └────────────┘ └────────────┘    │     │
-│  └────────────────────────────────────┘     │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    nvim-store3                           │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
+│  │   Global    │  │   Project   │  │    Plugins      │ │
+│  │    Store    │  │    Store    │  │     System      │ │
+│  └──────┬──────┘  └──────┬──────┘  └────────┬────────┘ │
+│         │                │                   │          │
+│  ┌──────┴────────────────┴───────────────────┴──────┐  │
+│  │                   Core Store                      │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────────┐   │  │
+│  │  │  Data    │  │  Events  │  │   Plugin     │   │  │
+│  │  │  Cache   │  │  System  │  │   Loader     │   │  │
+│  │  └──────────┘  └──────────┘  └──────────────┘   │  │
+│  └──────────────────────────────────────────────────┘  │
+│                           │                            │
+│  ┌────────────────────────────────────────────────┐   │
+│  │            Storage Backends                     │   │
+│  │  ┌────────────────┐  ┌────────────────────┐   │   │
+│  │  │  JSON Backend  │  │   Memory Backend   │   │   │
+│  │  └────────────────┘  └────────────────────┘   │   │
+│  └────────────────────────────────────────────────┘   │
+│                           │                            │
+│  ┌────────────────────────────────────────────────┐   │
+│  │           Auto Cleanup System                   │   │
+│  │  - Empty Projects    - Expired Projects        │   │
+│  │  - Count Limit       - Interactive Cleanup     │   │
+│  └────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 核心模块职责
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| Store | `core/store.lua` | 核心存储逻辑，CRUD 操作，事件管理 |
+| Store | `core/store.lua` | 核心存储逻辑，CRUD 操作，事件管理，空操作实例 |
 | Plugin Loader | `core/plugin_loader.lua` | 插件动态加载和管理 |
 | Backend Factory | `storage/backend_factory.lua` | 存储后端工厂模式管理 |
-| JSON Backend | `storage/json_backend.lua` | JSON 文件持久化 |
+| JSON Backend | `storage/json_backend.lua` | JSON 文件持久化，原子写入 |
+| Cleanup | `core/cleanup.lua` | 自动清理空项目、过期项目、数量限制 |
 | Event System | `util/event.lua` | 事件发布/订阅 |
-| Path Utils | `util/path.lua` | 路径处理和键名编码 |
+| Path Utils | `util/path.lua` | 智能项目识别、键名编码、路径管理 |
 | JSON Utils | `util/json.lua` | JSON 读写和原子操作 |
-| ID Generator | `util/id.lua` | 唯一 ID 生成 |
 
 ## 3. 核心 API 文档
 
@@ -73,7 +80,7 @@ local store = require("nvim-store3").global({
   }
 })
 
--- 项目存储
+-- 项目存储（自动识别项目根目录）
 local project_store = require("nvim-store3").project()
 ```
 
@@ -129,7 +136,42 @@ store:set_auto_encode(true)
 local enabled = store:get_auto_encode()
 ```
 
-### 3.2 插件系统 API
+#### 统计信息
+
+```lua
+-- 获取存储统计
+local stats = store:get_stats()
+print("总键数:", stats.total_keys)
+print("编码键数:", stats.encoded_keys)
+print("缓存大小:", stats.cache_size)
+print("是否空操作:", stats.noop)  -- 系统目录时为 true
+```
+
+### 3.2 清理系统 API
+
+```lua
+local Cleanup = require("nvim-store3.core.cleanup")
+
+-- 清理空项目
+Cleanup.cleanup_empty()
+
+-- 清理过期项目（默认30天）
+Cleanup.cleanup_expired(30)
+
+-- 限制项目数量（默认100个）
+Cleanup.limit_count(100)
+
+-- 获取统计信息
+local stats = Cleanup.get_stats()
+print("项目总数:", stats.total_projects)
+print("空项目数:", stats.empty_projects)
+print("总大小:", stats.total_size_mb, "MB")
+
+-- 交互式清理
+Cleanup.select_and_cleanup()
+```
+
+### 3.3 插件系统 API
 
 #### 插件加载器
 
@@ -163,7 +205,7 @@ PluginLoader.registry = {
 require("nvim-store3").register_plugin("my_plugin", "path.to.my_plugin")
 ```
 
-### 3.3 插件开发规范
+### 3.4 插件开发规范
 
 #### 插件基本结构
 
@@ -175,13 +217,14 @@ function M.new(store, config)
   local self = {
     store = store,
     config = config or {},
-    -- 插件私有状态
   }
 
   setmetatable(self, { __index = M })
 
-  -- 可选的初始化逻辑
-  self:_init()
+  -- 监听空操作实例（可选）
+  if not store._noop then
+    self:_init()
+  end
 
   return self
 end
@@ -196,6 +239,7 @@ end
 
 -- 插件功能方法
 function M:do_something()
+  if self.store._noop then return end  -- 空操作实例静默返回
   -- 实现功能
 end
 
@@ -207,7 +251,7 @@ end
 return M
 ```
 
-### 3.4 内置插件说明
+### 3.5 内置插件说明
 
 #### Basic Cache（基础缓存插件）
 
@@ -217,9 +261,9 @@ return M
 -- 配置
 {
   enabled = true,           -- 是否启用
-  default_ttl = 300,         -- 默认过期时间（秒）
-  write_through = true,      -- 是否同步写入存储
-  read_through = true,       -- 是否缓存读取
+  default_ttl = 300,        -- 默认过期时间（秒）
+  write_through = true,     -- 是否同步写入存储
+  read_through = true,      -- 是否缓存读取
 }
 
 -- API
@@ -239,8 +283,8 @@ cache:cleanup_expired()      -- 清理过期项
 
 -- API
 query:get_namespaces()               -- 获取所有命名空间
-query:get_namespaces_with_counts()    -- 获取带计数的命名空间
-query:show_json(namespace)            -- 显示格式化的 JSON
+query:get_namespaces_with_counts()   -- 获取带计数的命名空间
+query:show_json(namespace)           -- 显示格式化的 JSON
 ```
 
 #### Project Delete（项目删除插件）
@@ -253,8 +297,8 @@ query:show_json(namespace)            -- 显示格式化的 JSON
 
 -- API
 deleter:get_namespaces()               -- 获取命名空间列表
-deleter:delete_namespace(namespace)     -- 删除命名空间
-deleter:select_and_delete()             -- 交互式选择删除
+deleter:delete_namespace(namespace)    -- 删除命名空间
+deleter:select_and_delete()            -- 交互式选择删除
 ```
 
 ## 4. 存储后端
@@ -265,7 +309,7 @@ deleter:select_and_delete()             -- 交互式选择删除
 -- 配置
 {
   path = "/path/to/data.json",  -- 存储路径
-  flush_delay = 1000,            -- 延迟保存（毫秒）
+  flush_delay = 1000,           -- 延迟保存（毫秒）
 }
 
 -- 特性
@@ -293,17 +337,33 @@ deleter:select_and_delete()             -- 交互式选择删除
 ```lua
 local Path = require("nvim-store3.util.path")
 
+-- 智能项目根目录识别
+local root = Path.project_root()  -- 返回项目根目录或 nil
+print(root)  -- /home/user/projects/myapp
+
 -- 键名编码
 local safe = Path.encode_key("file/name")  -- "b64:ZmlsZS9uYW1l_..."
 local original = Path.decode_key(safe)     -- "file/name"
 
 -- 路径获取
-local project_root = Path.project_root()
-local store_path = Path.project_store_path()
-local global_path = Path.global_store_path()
+local store_path = Path.project_store_path()  -- 项目存储路径
+local global_path = Path.global_store_path()  -- 全局存储路径
+
+-- 清理功能
+Path.cleanup_empty_stores()       -- 清理空项目
+Path.cleanup_expired_stores(30)   -- 清理30天以上项目
+Path.limit_project_count(100)     -- 限制100个项目
+Path.select_and_cleanup()         -- 交互式清理
+Path.get_store_stats()            -- 获取存储统计
 ```
 
-编码规则：
+**智能项目识别规则：**
+- 向上查找项目标志（.git, package.json 等）
+- 系统目录黑名单（/etc, /var, /tmp 等）
+- 用户根目录不创建存储
+- 同一项目无论从哪个子目录进入，使用同一个存储文件
+
+**编码规则：**
 - 仅编码危险字符（`/ \ : ? * " < > |` 和控制字符）
 - 编码格式：`b64:{base64}_{hash}`
 - hash 用于冲突检测
@@ -337,60 +397,60 @@ events:emit("change", { key = "foo", value = "bar" })
 
 ## 6. 配置指南
 
-### 6.1 完整配置示例
+### 6.1 基础配置
+
+```lua
+-- ~/.config/nvim/init.lua
+require("nvim-store3").setup()  -- 自动启动清理
+```
+
+### 6.2 完整使用示例
 
 ```lua
 -- ~/.config/nvim/lua/plugins/nvim-store3.lua
 return {
-  "username/nvim-store3",
+  "nvim-store3",
   config = function()
     local store = require("nvim-store3")
 
-    -- 配置全局存储
+    -- 全局存储（跨项目共享）
     store.global({
       auto_encode = true,
-      storage = {
-        backend = "json",
-        flush_delay = 1000,
-      },
       plugins = {
-        basic_cache = {
-          enabled = true,
-          default_ttl = 600,
-          write_through = true,
-        },
+        basic_cache = true,
+      }
+    })
+
+    -- 项目存储（当前项目隔离）
+    local project = store.project({
+      plugins = {
         project_query = true,
         project_delete = true,
       }
     })
 
-    -- 注册自定义插件
-    store.register_plugin("my_plugin", "path.to.my_plugin")
+    -- 使用项目存储
+    project:set("notes.today", { title = "今日笔记", content = "..." })
+
+    -- 查询数据
+    local notes = project:namespace_keys("notes")
+    print("笔记数量:", #notes)
   end
 }
 ```
 
-### 6.2 插件启用/禁用
+### 6.3 命令参考
 
-```lua
--- 启用插件（使用默认配置）
-plugins = {
-  basic_cache = true,
-}
-
--- 启用插件（自定义配置）
-plugins = {
-  basic_cache = {
-    enabled = true,
-    default_ttl = 300,
-  },
-}
-
--- 禁用插件
-plugins = {
-  basic_cache = false,
-}
-```
+| 命令 | 描述 |
+|------|------|
+| `:Store` | 交互式查看项目数据 |
+| `:StoreDelete [namespace]` | 删除命名空间数据 |
+| `:StoreCleanup` | 交互式清理项目存储 |
+| `:StoreCleanup empty` | 清理空项目 |
+| `:StoreCleanup expired` | 清理过期项目（>30天） |
+| `:StoreCleanup limit` | 限制项目数量（保留100个） |
+| `:StoreCleanup stats` | 查看存储统计 |
+| `:StoreInfo` | 显示当前存储信息 |
 
 ## 7. 最佳实践
 
@@ -404,6 +464,9 @@ store:set("config.editor", { theme = "dark", font_size = 14 })
 
 -- 查询特定命名空间
 local notes = store:namespace_keys("notes")  -- {"today.1", "today.2"}
+
+-- 路径查询
+local note = store:query("notes.today.1")  -- { title = "...", content = "..." }
 ```
 
 ### 7.2 事件监听示例
@@ -412,8 +475,7 @@ local notes = store:namespace_keys("notes")  -- {"today.1", "today.2"}
 -- 数据变更监控
 store:on("set", function(payload)
   if payload.key:match("^notes%.") then
-    -- 更新笔记相关 UI
-    refresh_notes_view()
+    print("笔记已更新:", payload.key)
   end
 end)
 
@@ -439,6 +501,11 @@ function M.new(store, config)
 
   setmetatable(self, { __index = M })
 
+  -- 空操作实例检查
+  if store._noop then
+    return self
+  end
+
   -- 初始化计数
   self.counts = store:get("__counter") or {}
 
@@ -462,7 +529,9 @@ function M:get_count(key)
 end
 
 function M:cleanup()
-  self.store:set("__counter", self.counts)
+  if not self.store._noop then
+    self.store:set("__counter", self.counts)
+  end
 end
 
 return M
@@ -475,7 +544,7 @@ return M
 **Q: 数据保存失败**
 ```
 可能原因：目录权限不足、磁盘空间不足
-解决方案：检查存储路径权限，确保目录可写
+解决方案：检查 ~/.cache/nvim-store/ 目录权限
 ```
 
 **Q: 插件加载失败**
@@ -490,6 +559,18 @@ return M
 解决方案：使用 is_encoded_key() 检测，手动修复数据
 ```
 
+**Q: 系统目录也创建了存储**
+```
+可能原因：项目识别配置问题
+解决方案：检查 PROJECT_MARKERS 和 SYSTEM_DIRS 配置
+```
+
+**Q: 同一项目有多个存储文件**
+```
+可能原因：从不同子目录进入
+解决方案：使用智能项目识别，基于项目根目录生成存储键
+```
+
 ### 8.2 调试工具
 
 ```lua
@@ -498,12 +579,18 @@ local stats = store:get_stats()
 print("总键数:", stats.total_keys)
 print("编码键数:", stats.encoded_keys)
 print("缓存大小:", stats.cache_size)
+print("是否空操作:", stats.noop)
 
--- 检查编码状态
-local key = "test/key"
-local safe = Path.encode_key(key)
-print("需要编码:", Path.needs_encode(key))
-print("是编码键:", Path.is_encoded_key(safe))
+-- 检查项目识别
+local Path = require("nvim-store3.util.path")
+print("项目根目录:", Path.project_root())
+print("项目存储路径:", Path.project_store_path())
+
+-- 查看清理统计
+local Cleanup = require("nvim-store3.core.cleanup")
+local stats = Cleanup.get_stats()
+print("项目总数:", stats.total_projects)
+print("总大小:", stats.total_size_mb, "MB")
 ```
 
 ## 9. 性能优化
@@ -526,13 +613,41 @@ print("是编码键:", Path.is_encoded_key(safe))
 - 利用事件系统监听变化而非轮询
 - 批量解码减少重复计算
 
-## 10. 版本历史
+### 9.4 存储优化
 
-### v1.0.0
-- 初始版本发布
-- 基础 CRUD 功能
-- JSON 存储后端
-- 插件系统框架
+- 自动清理空项目（减少磁盘占用）
+- 自动清理过期项目（>30天）
+- 限制项目数量（最多100个）
+- 系统目录不创建存储（空操作实例）
+
+## 10. 存储路径说明
+
+```
+~/.cache/nvim-store/
+├── global/                          # 全局存储
+│   └── data.json
+├── home_user_projects_myapp/        # 项目存储（基于项目根目录）
+│   └── data.json
+├── home_user_projects_another/      # 另一个项目
+│   └── data.json
+└── ... (最多保留100个项目)
+```
+
+**项目识别规则：**
+- 向上查找 .git、package.json 等项目标志
+- 同一项目无论从哪个子目录进入，使用同一个存储
+- 系统目录和用户根目录不创建存储
+
+## 11. 版本历史
+
+### v1.2.0 (当前版本)
+- 智能项目识别：自动识别真实项目目录
+- 统一项目存储：基于项目根目录生成存储键
+- 空操作实例：系统目录静默失败
+- 自动清理系统：定期清理空项目、过期项目
+- 清理命令：交互式和命令行清理
+- 性能优化：路径缓存、延迟清理
+- 代码精简：移除冗余代码和未使用参数
 
 ### v1.1.0
 - 添加事件系统
@@ -540,13 +655,13 @@ print("是编码键:", Path.is_encoded_key(safe))
 - 新增项目查询插件
 - 新增项目删除插件
 
-### v1.2.0
-- 优化自动编码算法
-- 添加内存后端
-- 改进错误处理
-- 完善插件生命周期
+### v1.0.0
+- 初始版本发布
+- 基础 CRUD 功能
+- JSON 存储后端
+- 插件系统框架
 
-## 11. 贡献指南
+## 12. 贡献指南
 
 欢迎提交 Pull Request 或 Issue。请确保：
 
@@ -558,4 +673,5 @@ print("是编码键:", Path.is_encoded_key(safe))
 ---
 
 **文档版本**: 1.2.0
-**最后更新**: 2024-01-XX
+**最后更新**: 2024-03-28
+**维护者**: nvim-store3 Team
