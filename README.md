@@ -1,8 +1,3 @@
-## 1. 标准 README.md
-
-```markdown
-# nvim-store3
-
 > Neovim 持久化存储解决方案 - 让插件数据跨会话持久化
 
 [![Lua](https://img.shields.io/badge/Lua-5.1-blue.svg)](https://www.lua.org/)
