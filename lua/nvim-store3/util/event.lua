@@ -44,7 +44,7 @@ function M.new()
 			return
 		end
 		for _, cb in ipairs(handlers) do
-			cb(payload)
+			pcall(cb, payload)
 		end
 	end
 

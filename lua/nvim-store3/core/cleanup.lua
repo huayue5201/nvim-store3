@@ -3,6 +3,9 @@
 
 local M = {}
 
+-- 兼容 Neovim 0.8-0.9 (vim.loop) 与 0.10+ (vim.uv)
+local uv = vim.uv or vim.loop
+
 ---@class CleanupConfig
 ---@field enabled boolean 是否启用自动清理，默认 true
 ---@field max_age_days number 项目过期天数，默认 90
@@ -27,7 +30,7 @@ local cleanup_started = false
 ---@return number
 local function get_free_space_mb()
 	local cache_dir = vim.fn.stdpath("cache")
-	local ok, stat = pcall(vim.loop.fs_statvfs, cache_dir)
+	local ok, stat = pcall(uv.fs_statvfs, cache_dir)
 	if ok and stat and stat.bavail and stat.bsize then
 		return (stat.bavail * stat.bsize) / 1024 / 1024
 	end
@@ -45,7 +48,7 @@ local function get_all_projects()
 	local projects = {}
 	for _, dir in ipairs(vim.fn.glob(store_dir .. "/*", false, true)) do
 		if not dir:match("global$") then
-			local stat = vim.loop.fs_stat(dir)
+			local stat = uv.fs_stat(dir)
 			if stat then
 				local data_file = dir .. "/data.json"
 				local has_data = vim.fn.filereadable(data_file) == 1
@@ -58,7 +61,7 @@ local function get_all_projects()
 				local size = 0
 				local files = vim.fn.glob(dir .. "/*", false, true)
 				for _, file in ipairs(files) do
-					local file_stat = vim.loop.fs_stat(file)
+					local file_stat = uv.fs_stat(file)
 					if file_stat then
 						size = size + (file_stat.size or 0)
 					end
@@ -244,7 +247,7 @@ function M.start()
 		run_cleanup()
 
 		local interval_ms = config.check_interval_hours * 3600 * 1000
-		timer = vim.loop.new_timer()
+		timer = uv.new_timer()
 		if timer then
 			timer:start(interval_ms, interval_ms, vim.schedule_wrap(run_cleanup))
 		end

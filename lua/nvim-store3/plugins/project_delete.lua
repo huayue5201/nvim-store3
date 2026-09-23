@@ -46,6 +46,9 @@ function M:_refresh_counts()
 		return
 	end
 
+	-- 重置计数，避免已删除的命名空间残留
+	self.namespace_counts = {}
+
 	local namespaces = self:get_namespaces()
 	for _, ns in ipairs(namespaces) do
 		self.namespace_counts[ns] = #self.store:namespace_keys(ns)
@@ -120,8 +123,12 @@ function M:select_and_delete()
 end
 
 function M.setup()
+	if vim.fn.exists(":StoreDelete") == 2 then
+		return
+	end
 	vim.api.nvim_create_user_command("StoreDelete", function(opts)
-		local deleter = M.new(require("nvim-store3").project())
+		local store = require("nvim-store3").project()
+		local deleter = store.project_delete or M.new(store)
 		if opts.args and opts.args ~= "" then
 			deleter:delete_namespace(opts.args)
 		else
@@ -135,7 +142,7 @@ function M.setup()
 			if store._noop then
 				return {}
 			end
-			return M.new(store):get_namespaces()
+			return (store.project_delete or M.new(store)):get_namespaces()
 		end,
 	})
 end

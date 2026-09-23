@@ -1,5 +1,5 @@
--- nvim-store3/features/basic_cache.lua
--- 基础缓存插件（带安全补丁）
+-- lua/nvim-store3/plugins/basic_cache.lua
+-- 基础缓存插件（LRU + TTL，带安全补丁）
 
 local M = {}
 
@@ -29,15 +29,18 @@ function M.new(store, config)
 		store = store,
 		enabled = config.enabled ~= false,
 		default_ttl = config.default_ttl or 300,
+		max_size = config.max_size or 1000,
 		write_through = config.write_through ~= false,
 		read_through = config.read_through ~= false,
 
 		_cache = {},
 		_expire = {},
 		_lru = {},
+		_lru_head = nil,
 		_lru_tail = nil,
+		_size = 0,
 		_timer = nil,
-		_destroyed = false, -- ⭐ 新增：防止 timer 在 cleanup 后继续执行
+		_destroyed = false, -- 防止 timer 在 cleanup 后继续执行
 	}
 
 	setmetatable(self, { __index = M })
@@ -50,35 +53,45 @@ function M.new(store, config)
 end
 
 ---------------------------------------------------------------------
--- 内部：LRU 操作
+-- 内部：LRU 双向链表操作
 ---------------------------------------------------------------------
+---从链表中摘除节点（不删除 _lru 映射）
+function M:_lru_unlink(node)
+	if node.prev then
+		node.prev.next = node.next
+	else
+		self._lru_head = node.next
+	end
+	if node.next then
+		node.next.prev = node.prev
+	else
+		self._lru_tail = node.prev
+	end
+end
+
+---把节点移到链表头部
 function M:_lru_move_to_head(key)
 	local node = self._lru[key]
 	if not node then
 		return
 	end
-
-	if node.prev then
-		node.prev.next = node.next
-	end
-	if node.next then
-		node.next.prev = node.prev
+	if self._lru_head == node then
+		return -- 已在头部，无需移动
 	end
 
-	if self._lru_tail == node then
-		self._lru_tail = node.prev
-	end
-
+	self:_lru_unlink(node)
 	node.prev = nil
 	node.next = self._lru_head
-
 	if self._lru_head then
 		self._lru_head.prev = node
 	end
-
 	self._lru_head = node
+	if not self._lru_tail then
+		self._lru_tail = node
+	end
 end
 
+---在头部插入新节点
 function M:_lru_insert_head(key)
 	local node = { key = key, prev = nil, next = self._lru_head }
 	self._lru[key] = node
@@ -86,29 +99,47 @@ function M:_lru_insert_head(key)
 	if self._lru_head then
 		self._lru_head.prev = node
 	end
-
 	self._lru_head = node
-
 	if not self._lru_tail then
 		self._lru_tail = node
 	end
 end
 
+---移除指定节点
+function M:_lru_remove(key)
+	local node = self._lru[key]
+	if not node then
+		return
+	end
+	self:_lru_unlink(node)
+	self._lru[key] = nil
+end
+
+---移除并返回链表尾部（最久未使用）的 key
 function M:_lru_remove_tail()
 	local tail = self._lru_tail
 	if not tail then
 		return nil
 	end
+	self:_lru_unlink(tail)
+	self._lru[tail.key] = nil
+	return tail.key
+end
 
-	local key = tail.key
-	self._lru_tail = tail.prev
-
-	if self._lru_tail then
-		self._lru_tail.next = nil
+---淘汰超出容量的缓存项
+function M:_evict_if_needed()
+	if not self.max_size or self.max_size <= 0 then
+		return
 	end
-
-	self._lru[key] = nil
-	return key
+	while self._size > self.max_size do
+		local evicted = self:_lru_remove_tail()
+		if not evicted then
+			break
+		end
+		self._cache[evicted] = nil
+		self._expire[evicted] = nil
+		self._size = self._size - 1
+	end
 end
 
 ---------------------------------------------------------------------
@@ -119,7 +150,8 @@ function M:_start_cleanup_timer()
 		return
 	end
 
-	self._timer = vim.loop.new_timer()
+	local uv = vim.uv or vim.loop
+	self._timer = uv.new_timer()
 	self._timer:start(
 		60000, -- 每 60 秒清理一次
 		60000,
@@ -143,21 +175,24 @@ function M:set(key, value, ttl)
 		return
 	end
 
-	key = normalize_key(key) -- ⭐ 安全层
+	key = normalize_key(key)
 	if not key then
 		return
 	end
 
 	local expire_at = os.time() + (ttl or self.default_ttl)
 
-	self._cache[key] = value
-	self._expire[key] = expire_at
-
 	if self._lru[key] then
 		self:_lru_move_to_head(key)
 	else
 		self:_lru_insert_head(key)
+		self._size = self._size + 1
 	end
+
+	self._cache[key] = value
+	self._expire[key] = expire_at
+
+	self:_evict_if_needed()
 
 	if self.write_through then
 		self.store:set(key, value)
@@ -175,7 +210,7 @@ function M:get(key)
 		return nil
 	end
 
-	key = normalize_key(key) -- ⭐ 安全层
+	key = normalize_key(key)
 	if not key then
 		return nil
 	end
@@ -201,14 +236,17 @@ end
 -- 删除缓存（带 key 安全层）
 ---------------------------------------------------------------------
 function M:delete(key)
-	key = normalize_key(key) -- ⭐ 安全层
+	key = normalize_key(key)
 	if not key then
 		return
 	end
 
+	if self._lru[key] then
+		self:_lru_remove(key)
+		self._size = self._size - 1
+	end
 	self._cache[key] = nil
 	self._expire[key] = nil
-	self._lru[key] = nil
 
 	if self.write_through then
 		self.store:delete(key)
@@ -227,9 +265,12 @@ function M:cleanup_expired()
 
 	for key, expire_at in pairs(self._expire) do
 		if expire_at <= now then
-			self._cache[key] = nil
 			self._expire[key] = nil
-			self._lru[key] = nil
+			self._cache[key] = nil
+			if self._lru[key] then
+				self:_lru_remove(key)
+				self._size = self._size - 1
+			end
 		end
 	end
 end
@@ -240,7 +281,8 @@ end
 function M:get_stats()
 	return {
 		enabled = self.enabled,
-		size = vim.tbl_count(self._cache),
+		size = self._size,
+		max_size = self.max_size,
 	}
 end
 
@@ -248,7 +290,7 @@ end
 -- 清理资源（带 timer 安全关闭）
 ---------------------------------------------------------------------
 function M:cleanup()
-	self._destroyed = true -- ⭐ 防止 timer 回调继续执行
+	self._destroyed = true -- 防止 timer 回调继续执行
 
 	if self._timer then
 		self._timer:stop()
@@ -261,6 +303,7 @@ function M:cleanup()
 	self._lru = {}
 	self._lru_head = nil
 	self._lru_tail = nil
+	self._size = 0
 end
 
 return M

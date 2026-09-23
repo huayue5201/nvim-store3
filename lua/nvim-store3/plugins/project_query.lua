@@ -47,6 +47,9 @@ function M:_refresh_counts()
 		return
 	end
 
+	-- 重置计数，避免已删除的命名空间残留
+	self.namespace_counts = {}
+
 	local namespaces = self:get_namespaces()
 	for _, ns in ipairs(namespaces) do
 		self.namespace_counts[ns] = #self.store:namespace_keys(ns)
@@ -238,9 +241,12 @@ end
 
 -- 注册命令
 function M.setup()
+	if vim.fn.exists(":Store") == 2 then
+		return
+	end
 	vim.api.nvim_create_user_command("Store", function()
 		local store = require("nvim-store3").project()
-		local query = M.new(store)
+		local query = store.project_query or M.new(store)
 		query:select_namespace()
 	end, { desc = "查看存储数据" })
 end

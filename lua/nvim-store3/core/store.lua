@@ -8,7 +8,8 @@ local Event = require("nvim-store3.util.event")
 local Store = {}
 Store.__index = Store
 
-local NULL_MARKER = "__null__"
+-- 使用表作为哨兵值，避免与用户存储的字符串 "__null__" 冲突
+local NULL_MARKER = {}
 
 ---------------------------------------------------------------------
 -- 创建 Store 实例
@@ -145,7 +146,11 @@ function Store:get(key)
 	end
 
 	local value = self._backend:get(safe_key)
-	self._data[safe_key] = value or NULL_MARKER
+	if value == nil then
+		self._data[safe_key] = NULL_MARKER
+	else
+		self._data[safe_key] = value
+	end
 	return value
 end
 
@@ -241,14 +246,14 @@ function Store:get_stats()
 
 	-- 只从缓存读取，避免触发后端 IO
 	for _, key in ipairs(keys) do
-		local safe_key = Path.encode_key(key)
+		local safe_key = self:_safe_key(key)
 		if Path.is_encoded_key(safe_key) then
 			encoded_keys = encoded_keys + 1
 		end
 
 		local value = self._data[safe_key]
 		if value and value ~= NULL_MARKER then
-			local ok, json = pcall(vim.fn.json_encode, value)
+			local ok, json = pcall(vim.json.encode, value)
 			if ok and json then
 				total_size = total_size + #json
 			end
@@ -275,6 +280,31 @@ function Store:set_auto_encode(enabled)
 	if self._auto_encode == enabled then
 		return
 	end
+
+	-- 迁移现有数据到新的编码方式
+	local backend = self._backend
+	if backend and backend.keys and backend.get and backend.delete and backend.set then
+		local old_keys = backend:keys()
+		for _, safe_key in ipairs(old_keys) do
+			local original
+			if Path.is_encoded_key(safe_key) then
+				original = Path.decode_key(safe_key)
+			else
+				original = safe_key
+			end
+
+			local value = backend:get(safe_key)
+			if value ~= nil then
+				local new_key = enabled and Path.encode_key(original) or original
+				if new_key ~= safe_key then
+					backend:delete(safe_key)
+					backend:set(new_key, value)
+				end
+			end
+		end
+		backend:flush()
+	end
+
 	self._data = {}
 	self._auto_encode = enabled
 end
@@ -297,24 +327,27 @@ function Store:query(path)
 		return nil
 	end
 
-	local parts = vim.split(path, ".", { plain = true })
-	local current = self._data
+	-- 1) 先按完整键直接查找（兼容扁平键存储，如 "notes.today.1"）
+	local direct = self:get(path)
+	if direct ~= nil then
+		return direct
+	end
 
-	for i, part in ipairs(parts) do
-		if i == 1 then
-			local value = self:get(part)
-			if value == nil then
-				return nil
-			end
-			current = value
-		else
-			if type(current) ~= "table" then
-				return nil
-			end
-			current = current[part]
-			if current == nil then
-				return nil
-			end
+	-- 2) 否则按路径逐段下钻（支持嵌套表，如 "config.editor.theme"）
+	local parts = vim.split(path, ".", { plain = true })
+	if #parts < 2 then
+		return nil
+	end
+
+	local current = self:get(parts[1])
+	if type(current) ~= "table" then
+		return nil
+	end
+
+	for i = 2, #parts do
+		current = current[parts[i]]
+		if current == nil then
+			return nil
 		end
 	end
 

@@ -4,7 +4,7 @@
 local M = {}
 
 local global_instance = nil
-local project_instance = nil
+local project_instances = {}
 
 ---创建默认配置
 ---@param scope string
@@ -25,6 +25,17 @@ local function default_config(scope, Path)
 	}
 end
 
+---合并用户配置
+---@param base table
+---@param opts table|nil
+---@return table
+local function merge_config(base, opts)
+	if opts then
+		return vim.tbl_deep_extend("force", base, opts)
+	end
+	return base
+end
+
 ---获取全局存储实例
 ---@param opts table|nil
 ---@return table
@@ -32,31 +43,24 @@ function M.global(opts)
 	if not global_instance then
 		local Store = require("nvim-store3.core.store")
 		local Path = require("nvim-store3.util.path")
-		global_instance = Store.new(default_config("global", Path))
-		if opts then
-			for k, v in pairs(opts) do
-				global_instance[k] = v
-			end
-		end
+		global_instance = Store.new(merge_config(default_config("global", Path), opts))
 	end
 	return global_instance
 end
 
----获取项目存储实例
+---获取项目存储实例（按当前项目根目录分别缓存）
 ---@param opts table|nil
 ---@return table
 function M.project(opts)
-	if not project_instance then
+	local Path = require("nvim-store3.util.path")
+	local key = Path.project_key()
+
+	if not project_instances[key] then
 		local Store = require("nvim-store3.core.store")
-		local Path = require("nvim-store3.util.path")
-		project_instance = Store.new(default_config("project", Path))
-		if opts then
-			for k, v in pairs(opts) do
-				project_instance[k] = v
-			end
-		end
+		project_instances[key] = Store.new(merge_config(default_config("project", Path), opts))
 	end
-	return project_instance
+
+	return project_instances[key]
 end
 
 ---获取可用插件列表
@@ -70,16 +74,16 @@ function M.get_available_plugins()
 	return plugins
 end
 
----清理存储实例
+---清理所有存储实例
 function M.clear()
 	if global_instance then
 		global_instance:cleanup()
 		global_instance = nil
 	end
-	if project_instance then
-		project_instance:cleanup()
-		project_instance = nil
+	for _, instance in pairs(project_instances) do
+		instance:cleanup()
 	end
+	project_instances = {}
 end
 
 ---注册自定义插件
@@ -98,5 +102,9 @@ end
 
 -- 默认启动清理（使用默认配置）
 M.setup_cleanup()
+
+-- 注册内置用户命令（:Store / :StoreDelete）
+require("nvim-store3.plugins.project_query").setup()
+require("nvim-store3.plugins.project_delete").setup()
 
 return M

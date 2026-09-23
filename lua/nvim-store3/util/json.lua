@@ -3,6 +3,9 @@
 
 local Json = {}
 
+-- 临时文件计数器，确保并发写入时文件名唯一
+local tmp_counter = 0
+
 ---------------------------------------------------------------------
 -- 确保目录存在
 ---------------------------------------------------------------------
@@ -46,7 +49,8 @@ function Json.save(path, data)
 	end
 
 	-- 使用唯一临时文件名，避免冲突
-	local tmp = path .. ".tmp." .. os.time() .. "." .. math.random(10000)
+	tmp_counter = tmp_counter + 1
+	local tmp = string.format("%s.tmp.%d.%d", path, os.time(), tmp_counter)
 	local ok = vim.fn.writefile({ encoded }, tmp) == 0
 	if not ok then
 		return false
