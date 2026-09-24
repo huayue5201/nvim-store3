@@ -2,8 +2,8 @@
 --- 核心存储模块
 
 local PluginLoader = require("nvim-store3.core.plugin_loader")
-local Path = require("nvim-store3.util.path")
 local Event = require("nvim-store3.util.event")
+local Meta = require("nvim-store3.core.meta")
 
 local Store = {}
 Store.__index = Store
@@ -18,7 +18,6 @@ local NULL_MARKER = {}
 --- @param config table 配置
 --- @param config.scope string 作用域（global/project）
 --- @param config.storage table 存储配置
---- @param config.auto_encode boolean 是否自动编码键名
 --- @param config.plugins table 插件配置
 --- @return table Store 实例
 function Store.new(config)
@@ -31,9 +30,10 @@ function Store.new(config)
 		_data = {},
 		_backend = nil,
 		_plugin_loader = nil,
-		_auto_encode = config.auto_encode ~= false,
 		_events = Event.new(),
 		_noop = not has_valid_path, -- 路径无效时为空操作
+		_meta_path = config.storage.meta_path,
+		_root = config.storage.root,
 	}
 
 	setmetatable(self, Store)
@@ -44,6 +44,7 @@ function Store.new(config)
 		self._plugin_loader = PluginLoader.new(self, config)
 		self._plugin_loader:load_plugins()
 		self:_setup_autocmd()
+		self:_touch_access()
 	end
 
 	return self
@@ -95,20 +96,11 @@ function Store:_setup_autocmd()
 	})
 end
 
----------------------------------------------------------------------
--- 键编码
----------------------------------------------------------------------
---- 安全编码键名
---- @param key string 原始键名
---- @return string 编码后的键名
-function Store:_safe_key(key)
-	if self._noop then
-		return key
+--- 记录项目访问时间（项目存储被打开即视为一次访问）
+function Store:_touch_access()
+	if self.scope == "project" and self._meta_path then
+		Meta.touch_access(self._meta_path, self._root)
 	end
-	if not self._auto_encode then
-		return key
-	end
-	return Path.encode_key(key)
 end
 
 ---------------------------------------------------------------------
@@ -122,9 +114,8 @@ function Store:set(key, value)
 		return
 	end
 
-	local safe_key = self:_safe_key(key)
-	self._data[safe_key] = value
-	self._backend:set(safe_key, value)
+	self._data[key] = value
+	self._backend:set(key, value)
 	self:_emit("set", { key = key, value = value })
 end
 
@@ -136,8 +127,7 @@ function Store:get(key)
 		return nil
 	end
 
-	local safe_key = self:_safe_key(key)
-	local cached = self._data[safe_key]
+	local cached = self._data[key]
 
 	if cached == NULL_MARKER then
 		return nil
@@ -145,11 +135,11 @@ function Store:get(key)
 		return cached
 	end
 
-	local value = self._backend:get(safe_key)
+	local value = self._backend:get(key)
 	if value == nil then
-		self._data[safe_key] = NULL_MARKER
+		self._data[key] = NULL_MARKER
 	else
-		self._data[safe_key] = value
+		self._data[key] = value
 	end
 	return value
 end
@@ -161,9 +151,8 @@ function Store:delete(key)
 		return
 	end
 
-	local safe_key = self:_safe_key(key)
-	self._data[safe_key] = nil
-	self._backend:delete(safe_key)
+	self._data[key] = nil
+	self._backend:delete(key)
 	self:_emit("delete", { key = key })
 end
 
@@ -175,8 +164,7 @@ function Store:keys()
 	end
 
 	if self._backend and self._backend.keys then
-		local safe_keys = self._backend:keys()
-		return Path.batch_decode_keys(safe_keys)
+		return self._backend:keys()
 	end
 	return {}
 end
@@ -222,6 +210,10 @@ function Store:flush()
 		end
 	end
 
+	if ok then
+		Meta.touch_update(self._meta_path)
+	end
+
 	return ok
 end
 
@@ -231,27 +223,19 @@ function Store:get_stats()
 	if self._noop then
 		return {
 			total_keys = 0,
-			encoded_keys = 0,
 			cache_size = 0,
 			estimated_size = 0,
 			scope = self.scope,
-			auto_encode_enabled = self._auto_encode,
 			noop = true,
 		}
 	end
 
 	local keys = self:keys()
 	local total_size = 0
-	local encoded_keys = 0
 
 	-- 只从缓存读取，避免触发后端 IO
 	for _, key in ipairs(keys) do
-		local safe_key = self:_safe_key(key)
-		if Path.is_encoded_key(safe_key) then
-			encoded_keys = encoded_keys + 1
-		end
-
-		local value = self._data[safe_key]
+		local value = self._data[key]
 		if value and value ~= NULL_MARKER then
 			local ok, json = pcall(vim.json.encode, value)
 			if ok and json then
@@ -262,60 +246,16 @@ function Store:get_stats()
 
 	return {
 		total_keys = #keys,
-		encoded_keys = encoded_keys,
 		cache_size = vim.tbl_count(self._data),
 		estimated_size = total_size,
 		scope = self.scope,
-		auto_encode_enabled = self._auto_encode,
 		noop = false,
 	}
 end
 
---- 设置自动编码
---- @param enabled boolean 是否启用
-function Store:set_auto_encode(enabled)
-	if self._noop then
-		return
-	end
-	if self._auto_encode == enabled then
-		return
-	end
-
-	-- 迁移现有数据到新的编码方式
-	local backend = self._backend
-	if backend and backend.keys and backend.get and backend.delete and backend.set then
-		local old_keys = backend:keys()
-		for _, safe_key in ipairs(old_keys) do
-			local original
-			if Path.is_encoded_key(safe_key) then
-				original = Path.decode_key(safe_key)
-			else
-				original = safe_key
-			end
-
-			local value = backend:get(safe_key)
-			if value ~= nil then
-				local new_key = enabled and Path.encode_key(original) or original
-				if new_key ~= safe_key then
-					backend:delete(safe_key)
-					backend:set(new_key, value)
-				end
-			end
-		end
-		backend:flush()
-	end
-
-	self._data = {}
-	self._auto_encode = enabled
-end
-
---- 获取自动编码状态
---- @return boolean 是否启用
-function Store:get_auto_encode()
-	return self._auto_encode
-end
-
 --- 路径查询（支持嵌套访问）
+--- 语义：优先按完整扁平键精确匹配（如 "notes.today.1"）；
+---       未命中时再按点号逐段下钻嵌套表（如 "config.editor.theme"）。
 --- @param path string 路径，如 "notes.today.1"
 --- @return any 查询结果
 function Store:query(path)
@@ -327,7 +267,7 @@ function Store:query(path)
 		return nil
 	end
 
-	-- 1) 先按完整键直接查找（兼容扁平键存储，如 "notes.today.1"）
+	-- 1) 先按完整键精确匹配扁平键（如 "notes.today.1"）
 	local direct = self:get(path)
 	if direct ~= nil then
 		return direct

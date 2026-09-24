@@ -1,5 +1,5 @@
 -- lua/nvim-store3/util/json.lua
--- JSON 文件读写工具（安全 + 原子写入）
+-- JSON 文件读写工具（安全 + 原子写入，统一使用 vim.json）
 
 local Json = {}
 
@@ -17,6 +17,32 @@ local function ensure_dir(path)
 end
 
 ---------------------------------------------------------------------
+-- JSON 编解码（统一使用 vim.json，非阻塞且无废弃警告）
+---------------------------------------------------------------------
+
+---解码 JSON 字符串
+---@param str string
+---@return table|nil
+function Json.decode(str)
+	local ok, decoded = pcall(vim.json.decode, str)
+	if ok and type(decoded) == "table" then
+		return decoded
+	end
+	return nil
+end
+
+---编码为 JSON 字符串
+---@param data any
+---@return string|nil
+function Json.encode(data)
+	local ok, encoded = pcall(vim.json.encode, data)
+	if ok and encoded then
+		return encoded
+	end
+	return nil
+end
+
+---------------------------------------------------------------------
 -- 安全读取 JSON 文件
 ---------------------------------------------------------------------
 function Json.load(path)
@@ -29,8 +55,8 @@ function Json.load(path)
 		return {}
 	end
 
-	local ok, decoded = pcall(vim.fn.json_decode, table.concat(content, "\n"))
-	if ok and type(decoded) == "table" then
+	local decoded = Json.decode(table.concat(content, "\n"))
+	if decoded ~= nil then
 		return decoded
 	end
 
@@ -43,7 +69,7 @@ end
 function Json.save(path, data)
 	ensure_dir(path)
 
-	local encoded = vim.fn.json_encode(data)
+	local encoded = Json.encode(data)
 	if not encoded then
 		return false
 	end

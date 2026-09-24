@@ -16,6 +16,7 @@ function JsonBackend.new(config)
 
 	return setmetatable({
 		config = config,
+		version = config.version or 2,
 		data = {},
 		dirty = false,
 		save_timer = nil,
@@ -25,11 +26,16 @@ function JsonBackend.new(config)
 	}, JsonBackend)
 end
 
---- 加载数据
+--- 加载数据（v2 包装格式）
 --- @return table 加载的数据
 function JsonBackend:load()
 	if not self._loaded then
-		self.data = Json.load(self.config.path) or {}
+		local raw = Json.load(self.config.path)
+		if type(raw) == "table" and raw.version == self.version and type(raw.data) == "table" then
+			self.data = raw.data
+		else
+			self.data = {}
+		end
 		self._loaded = true
 	end
 	return self.data
@@ -175,7 +181,7 @@ function JsonBackend:flush()
 			end
 		end
 
-		success = Json.save(self.config.path, self.data)
+		success = Json.save(self.config.path, { version = self.version, data = self.data })
 
 		if success then
 			self.dirty = false

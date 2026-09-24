@@ -11,16 +11,29 @@ local project_instances = {}
 ---@param Path table
 ---@return table
 local function default_config(scope, Path)
-	local path = scope == "global" and Path.global_store_path() or Path.project_store_path()
+	if scope == "global" then
+		return {
+			scope = scope,
+			storage = {
+				path = Path.global_store_path(),
+				backend = "json",
+				flush_delay = 1000,
+				version = 2,
+			},
+			plugins = {},
+		}
+	end
 
 	return {
 		scope = scope,
 		storage = {
-			path = path,
+			path = Path.project_store_path(),
+			meta_path = Path.project_meta_path(),
+			root = Path.project_root(),
 			backend = "json",
 			flush_delay = 1000,
+			version = 2,
 		},
-		auto_encode = true,
 		plugins = {},
 	}
 end

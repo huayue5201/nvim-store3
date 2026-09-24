@@ -4,7 +4,7 @@
 [![Neovim](https://img.shields.io/badge/Neovim-0.8+-green.svg)](https://neovim.io/)
 [![License](https://img.shields.io/badge/License-MIT-red.svg)](LICENSE)
 
-nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会话的数据持久化、事件驱动、自动编码和智能项目识别功能。
+nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会话的数据持久化、事件驱动、哈希项目目录和智能项目识别功能。
 
 ## ✨ 特性
 
@@ -12,7 +12,7 @@ nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会
 - 🧠 **智能项目识别** - 自动识别项目根目录，避免污染系统目录
 - 🔌 **插件化架构** - 支持动态加载插件，插件直接挂载到 store 实例
 - 📡 **事件驱动** - 内置事件系统，支持数据变更监听
-- 🔐 **自动编码** - 智能键名编码，确保文件系统兼容性
+- 🗂️ **哈希项目目录** - 项目目录使用 SHA-256 哈希命名，避免路径冲突与超长目录名
 - 💾 **原子写入** - JSON 后端支持原子写入和自动备份
 - 🧹 **智能清理** - 自动清理空项目、过期项目，磁盘空间不足时自动限制数量
 
@@ -113,7 +113,6 @@ local note = store:query("notes.today.1")  -- { title = "Meeting notes", ... }
 | `:flush()` | 持久化到磁盘 | `store:flush()` |
 | `:on(event, callback)` | 订阅事件 | `store:on("set", fn)` |
 | `:get_stats()` | 获取统计信息 | `local stats = store:get_stats()` |
-| `:set_auto_encode(bool)` | 设置自动编码 | `store:set_auto_encode(true)` |
 
 ### 事件系统
 
@@ -139,7 +138,6 @@ end)
 ```lua
 local stats = store:get_stats()
 print("总键数:", stats.total_keys)
-print("编码键数:", stats.encoded_keys)
 print("缓存大小:", stats.cache_size)
 print("估算大小:", stats.estimated_size, "bytes")
 print("作用域:", stats.scope)
@@ -162,7 +160,6 @@ print("空操作模式:", stats.noop)  -- 系统目录时为 true
 ```lua
 -- 全局存储配置
 local store = require("nvim-store3").global({
-  auto_encode = true,  -- 自动编码键名
   storage = {
     backend = "json",
     flush_delay = 1000,  -- 延迟保存（毫秒）
@@ -336,20 +333,21 @@ store.my_plugin:my_method()
 ## 🗂️ 存储结构
 
 ```
-~/.cache/nvim-store/
-├── global/                          # 全局存储
-│   └── data.json
-├── home_user_projects_myapp/        # 项目 A（基于项目根目录）
-│   └── data.json
-├── home_user_projects_another/      # 项目 B
-│   └── data.json
-└── ...
+~/.cache/nvim/nvim-store/                    # 实际路径 = stdpath("cache") .. "/nvim-store"
+├── global/                                  # 全局存储
+│   └── data.json                            # { "version": 2, "data": {...} }
+└── projects/                                # 项目存储
+    ├── 4269cebe2bf51ea9/                    # 项目 A（根路径 SHA-256 前 16 位）
+    │   ├── meta.json                        # { root, created_at, accessed_at, updated_at }
+    │   └── data.json                        # { "version": 2, "data": {...} }
+    └── ...
 ```
 
 **项目识别规则**：
 - 向上查找项目标志（.git, package.json, Makefile 等）
 - 系统目录黑名单（/etc, /var, /tmp 等）不创建存储
 - 同一项目无论从哪个子目录进入，使用同一个存储
+- 项目目录名 = 项目根路径的 SHA-256 哈希前 16 位，真实路径记录在 `meta.json` 的 `root` 字段中（避免长目录名与路径冲突）
 
 ## 🧹 智能清理策略
 
@@ -360,6 +358,9 @@ nvim-store3 内置智能清理机制，自动管理项目存储：
 | 1 | 清理空项目 | 无条件 | data.json 为 {} 的项目最先清理 |
 | 2 | 清理过期项目 | 超过配置天数未访问 | 默认 90 天，可配置 |
 | 3 | 限制数量 | 磁盘空间低于阈值 | 默认 100MB，删除最旧的项目 |
+
+> “访问时间”由 `meta.json` 的 `accessed_at` 字段记录（项目存储每次被打开时更新），
+> 与“写入时间”`updated_at` 分离，避免只读项目被误判为过期。
 
 清理时会有通知提示，让用户了解清理情况。
 
@@ -421,7 +422,7 @@ store:flush()
 -- 调试项目根目录
 local Path = require("nvim-store3.util.path")
 print("Project root:", Path.project_root())
-print("Project key:", Path.project_key())
+print("Project key:", Path.project_key())  -- 根路径的哈希（目录名），非完整路径
 ```
 
 ### 清理统计

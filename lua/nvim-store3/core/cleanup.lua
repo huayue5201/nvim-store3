@@ -5,6 +5,8 @@ local M = {}
 
 -- 兼容 Neovim 0.8-0.9 (vim.loop) 与 0.10+ (vim.uv)
 local uv = vim.uv or vim.loop
+local Json = require("nvim-store3.util.json")
+local Path = require("nvim-store3.util.path")
 
 ---@class CleanupConfig
 ---@field enabled boolean 是否启用自动清理，默认 true
@@ -40,46 +42,57 @@ end
 ---获取所有项目存储信息
 ---@return table[]
 local function get_all_projects()
-	local store_dir = vim.fn.stdpath("cache") .. "/nvim-store"
-	if vim.fn.isdirectory(store_dir) == 0 then
+	local projects_dir = Path.store_root() .. "/projects"
+	if vim.fn.isdirectory(projects_dir) == 0 then
 		return {}
 	end
 
 	local projects = {}
-	for _, dir in ipairs(vim.fn.glob(store_dir .. "/*", false, true)) do
-		if not dir:match("global$") then
-			local stat = uv.fs_stat(dir)
-			if stat then
-				local data_file = dir .. "/data.json"
-				local has_data = vim.fn.filereadable(data_file) == 1
-				if has_data then
-					local content = vim.fn.readfile(data_file)
-					has_data = table.concat(content, "") ~= "{}"
-				end
+	for _, dir in ipairs(vim.fn.glob(projects_dir .. "/*", false, true)) do
+		if vim.fn.isdirectory(dir) == 1 then
+			local meta_path = dir .. "/meta.json"
+			local data_file = dir .. "/data.json"
+			local meta = Json.load(meta_path)
 
-				-- 计算目录总大小
-				local size = 0
-				local files = vim.fn.glob(dir .. "/*", false, true)
-				for _, file in ipairs(files) do
-					local file_stat = uv.fs_stat(file)
-					if file_stat then
-						size = size + (file_stat.size or 0)
-					end
+			-- 判断是否有数据（仅识别 v2 包装格式）
+			local has_data = false
+			if vim.fn.filereadable(data_file) == 1 then
+				local raw = Json.load(data_file)
+				if type(raw) == "table" and type(raw.data) == "table" then
+					has_data = next(raw.data) ~= nil
 				end
-
-				table.insert(projects, {
-					path = dir,
-					mtime = stat.mtime.sec,
-					size = size,
-					has_data = has_data,
-				})
 			end
+
+			-- 计算目录总大小
+			local size = 0
+			local files = vim.fn.glob(dir .. "/*", false, true)
+			for _, file in ipairs(files) do
+				local file_stat = uv.fs_stat(file)
+				if file_stat then
+					size = size + (file_stat.size or 0)
+				end
+			end
+
+			-- 访问时间优先取 meta.accessed_at，回退目录 mtime
+			local accessed_at = meta.accessed_at
+			if not accessed_at then
+				local stat = uv.fs_stat(dir)
+				accessed_at = stat and stat.mtime.sec or 0
+			end
+
+			table.insert(projects, {
+				path = dir,
+				root = meta.root or dir,
+				accessed_at = accessed_at,
+				size = size,
+				has_data = has_data,
+			})
 		end
 	end
 
-	-- 按最后访问时间排序（最旧的在前）
+	-- 按访问时间排序（最旧的在前）
 	table.sort(projects, function(a, b)
-		return a.mtime < b.mtime
+		return a.accessed_at < b.accessed_at
 	end)
 	return projects
 end
@@ -113,7 +126,7 @@ local function cleanup_expired(projects, max_age_days)
 
 	for _, p in ipairs(projects) do
 		-- 只清理过期的，且必须有数据（空项目已经被清理）
-		if p.has_data and (now - p.mtime) / 86400 > max_age_days then
+		if p.has_data and (now - p.accessed_at) / 86400 > max_age_days then
 			vim.fn.delete(p.path, "rf")
 			deleted = deleted + 1
 			freed = freed + p.size
@@ -283,7 +296,7 @@ function M.get_stats()
 		if not p.has_data then
 			empty_count = empty_count + 1
 		end
-		if p.has_data and (now - p.mtime) / 86400 > config.max_age_days then
+		if p.has_data and (now - p.accessed_at) / 86400 > config.max_age_days then
 			expired_count = expired_count + 1
 		end
 	end
