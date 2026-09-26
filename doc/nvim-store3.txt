@@ -1,0 +1,187 @@
+*nvim-store3.txt*    Neovim persistent storage solution
+
+==============================================================================
+CONTENTS                                                  *nvim-store3*
+
+1. Introduction ..................................... |nvim-store3-intro|
+2. Installation ..................................... |nvim-store3-install|
+3. Quick start ...................................... |nvim-store3-quickstart|
+4. Core API ......................................... |nvim-store3-api|
+5. Commands ......................................... |nvim-store3-commands|
+6. Configuration .................................... |nvim-store3-config|
+7. Built-in plugins ................................. |nvim-store3-plugins|
+8. Storage layout ................................... |nvim-store3-layout|
+
+==============================================================================
+1. INTRODUCTION                                        *nvim-store3-intro*
+
+nvim-store3 is a persistent storage solution for Neovim plugins, providing
+cross-session data persistence, an event system, hashed project directories
+and smart project detection.
+
+- Dual-scope storage: global and project-level storage.
+- Smart project detection: automatically detects the project root.
+- Plugin architecture: dynamically loaded plugins mount onto store instances.
+- Event-driven: built-in event system for data-change listeners.
+- Atomic writes: the JSON backend supports atomic writes and backups.
+- Smart cleanup: cleans empty/expired projects and limits count on low disk.
+
+==============================================================================
+2. INSTALLATION                                      *nvim-store3-install*
+
+With lazy.nvim: >
+    {
+      "nvim-store3",
+      config = function()
+        require("nvim-store3").setup_cleanup({
+          enabled = true,
+          max_age_days = 90,
+          max_count = 50,
+          min_free_space_mb = 100,
+          check_interval_hours = 24,
+        })
+      end
+    }
+<
+
+==============================================================================
+3. QUICK START                                      *nvim-store3-quickstart*
+
+GLOBAL STORAGE ~
+
+    local store = require("nvim-store3").global()
+    store:set("theme", "dark")
+    store:set("last_session", { file = "main.lua", line = 42 })
+
+    local theme = store:get("theme")
+    local session = store:get("last_session")
+
+    store:delete("theme")
+    store:flush()
+
+PROJECT STORAGE ~
+
+    local project = require("nvim-store3").project()
+    project:set("bookmarks", {
+      { file = "src/main.lua", line = 10 },
+      { file = "src/utils.lua", line = 25 },
+    })
+
+NAMESPACES ~
+
+    store:set("notes.today.1", { title = "Meeting notes" })
+    store:set("notes.today.2", { title = "TODO list" })
+
+    local notes = store:namespace_keys("notes")   -- {"today.1", "today.2"}
+    local note  = store:query("notes.today.1")
+
+==============================================================================
+4. CORE API                                                *nvim-store3-api*
+
+STORE INSTANCE METHODS ~
+
+    :set(key, value)            store data
+    :get(key)                   read data
+    :delete(key)                delete data
+    :keys()                     get all keys
+    :namespace_keys(ns)         get keys under a namespace
+    :query(path)                path query (supports nesting)
+    :flush()                    persist to disk
+    :on(event, callback)        subscribe to an event
+    :get_stats()                get statistics
+
+EVENTS ~
+
+    store:on("set",    function(payload) ... end)
+    store:on("delete", function(payload) ... end)
+    store:on("flush",  function(payload) ... end)
+
+STATISTICS ~
+
+    local stats = store:get_stats()
+    -- stats.total_keys, stats.cache_size, stats.estimated_size,
+    -- stats.scope, stats.noop
+
+==============================================================================
+5. COMMANDS                                          *nvim-store3-commands*
+
+                                                          *:Store*
+:Store                  Interactively view project data (project_query plugin).
+
+                                                          *:StoreDelete*
+:StoreDelete [namespace]
+                        Delete namespace data (project_delete plugin).
+
+==============================================================================
+6. CONFIGURATION                                      *nvim-store3-config*
+
+STORAGE CONFIGURATION ~
+
+    local store = require("nvim-store3").global({
+      storage = {
+        backend = "json",
+        flush_delay = 1000,     -- delayed save (milliseconds)
+      },
+      plugins = {
+        basic_cache = {
+          default_ttl = 300,
+          write_through = true,
+          read_through = true,
+        },
+      },
+    })
+
+CLEANUP CONFIGURATION ~
+
+    require("nvim-store3").setup_cleanup({
+      enabled = true,
+      max_age_days = 90,
+      max_count = 50,
+      min_free_space_mb = 100,
+      check_interval_hours = 24,
+    })
+
+==============================================================================
+7. BUILT-IN PLUGINS                                  *nvim-store3-plugins*
+
+BASIC CACHE ~
+
+    local store = require("nvim-store3").global({
+      plugins = { basic_cache = true },
+    })
+    local cache = store.basic_cache
+    cache:set("key", "value", 300)   -- TTL in seconds
+    cache:get("key")
+    cache:delete("key")
+    cache:cleanup_expired()
+
+PROJECT QUERY ~
+
+    local store = require("nvim-store3").project({
+      plugins = { project_query = true },
+    })
+    store.project_query:show_json("notes")
+    store.project_query:select_namespace()
+
+PROJECT DELETE ~
+
+    local store = require("nvim-store3").project({
+      plugins = { project_delete = true },
+    })
+    store.project_delete:delete_namespace("notes")
+    store.project_delete:select_and_delete()
+
+==============================================================================
+8. STORAGE LAYOUT                                    *nvim-store3-layout*
+
+    ~/.cache/nvim/nvim-store/      -- stdpath("cache") .. "/nvim-store"
+    ├── global/data.json
+    └── projects/<hash>/           -- first 16 chars of root-path SHA-256
+        ├── meta.json              -- { root, created_at, accessed_at, updated_at }
+        └── data.json
+
+Project detection walks upward looking for markers (.git, package.json,
+Makefile, ...). System directories are blacklisted.
+
+==============================================================================
+vim:tw=78:ts=8:noet:ft=help:norl:
