@@ -113,11 +113,4 @@ function M.setup_cleanup(opts)
 	Cleanup.setup(opts or { enabled = true })
 end
 
--- 默认启动清理（使用默认配置）
-M.setup_cleanup()
-
--- 注册内置用户命令（:Store / :StoreDelete）
-require("nvim-store3.plugins.project_query").setup()
-require("nvim-store3.plugins.project_delete").setup()
-
 return M
