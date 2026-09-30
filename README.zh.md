@@ -1,7 +1,7 @@
 > Neovim 持久化存储解决方案 - 让插件数据跨会话持久化
 
 [![Lua](https://img.shields.io/badge/Lua-5.1-blue.svg)](https://www.lua.org/)
-[![Neovim](https://img.shields.io/badge/Neovim-0.8+-green.svg)](https://neovim.io/)
+[![Neovim](https://img.shields.io/badge/Neovim-0.13+-green.svg)](https://neovim.io/)
 [![License](https://img.shields.io/badge/License-MIT-red.svg)](LICENSE)
 
 nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会话的数据持久化、事件驱动、哈希项目目录和智能项目识别功能。

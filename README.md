@@ -1,7 +1,7 @@
 > Neovim persistent storage solution — keep plugin data across sessions
 
 [![Lua](https://img.shields.io/badge/Lua-5.1-blue.svg)](https://www.lua.org/)
-[![Neovim](https://img.shields.io/badge/Neovim-0.8+-green.svg)](https://neovim.io/)
+[![Neovim](https://img.shields.io/badge/Neovim-0.13+-green.svg)](https://neovim.io/)
 [![License](https://img.shields.io/badge/License-MIT-red.svg)](LICENSE)
 
 nvim-store3 is a persistent storage solution designed for Neovim, providing

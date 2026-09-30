@@ -2,6 +2,7 @@
 --- JSON 存储后端（精简版）
 
 local Json = require("nvim-store3.util.json")
+local async_util = require("nvim-store3.util.async")
 
 local JsonBackend = {}
 JsonBackend.__index = JsonBackend
@@ -19,7 +20,7 @@ function JsonBackend.new(config)
 		version = config.version or 2,
 		data = {},
 		dirty = false,
-		save_timer = nil,
+		_save_task = nil,
 		_loaded = false,
 		_write_lock = false,
 		_pending_writes = {},
@@ -123,26 +124,16 @@ end
 
 --- 调度保存（带 debounce）
 function JsonBackend:_schedule_save()
-	if self.save_timer then
-		pcall(vim.fn.timer_stop, self.save_timer)
-		self.save_timer = nil
-	end
-
 	local delay = self.config.flush_delay
 	if not delay or delay <= 0 then
 		self:flush()
 		return
 	end
 
-	local timer_id = vim.fn.timer_start(delay, function()
-		vim.schedule(function()
-			if self.save_timer == timer_id then
-				self:flush()
-				self.save_timer = nil
-			end
-		end)
+	-- 防抖：取消上一轮，delay 毫秒后落盘
+	async_util.debounce(self, "_save_task", delay, function()
+		self:flush()
 	end)
-	self.save_timer = timer_id
 end
 
 --- 强制保存（原子操作）

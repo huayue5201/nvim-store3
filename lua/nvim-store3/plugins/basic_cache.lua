@@ -3,6 +3,8 @@
 
 local M = {}
 
+local async_util = require("nvim-store3.util.async")
+
 ---------------------------------------------------------------------
 -- 内部：key 安全层（过滤 nil / vim.NIL / 非字符串）
 ---------------------------------------------------------------------
@@ -39,14 +41,13 @@ function M.new(store, config)
 		_lru_head = nil,
 		_lru_tail = nil,
 		_size = 0,
-		_timer = nil,
-		_destroyed = false, -- 防止 timer 在 cleanup 后继续执行
+		_cleanup_task = nil,
 	}
 
 	setmetatable(self, { __index = M })
 
 	if self.enabled then
-		self:_start_cleanup_timer()
+		self:_start_cleanup_task()
 	end
 
 	return self
@@ -145,23 +146,15 @@ end
 ---------------------------------------------------------------------
 -- 内部：定时清理（带安全保护）
 ---------------------------------------------------------------------
-function M:_start_cleanup_timer()
-	if self._timer then
+function M:_start_cleanup_task()
+	if self._cleanup_task then
 		return
 	end
 
-	local uv = vim.uv or vim.loop
-	self._timer = uv.new_timer()
-	self._timer:start(
-		60000, -- 每 60 秒清理一次
-		60000,
-		vim.schedule_wrap(function()
-			if self._destroyed then
-				return
-			end
-			self:cleanup_expired()
-		end)
-	)
+	-- 每 60 秒清理一次（任务取消即停止，无需额外的 _destroyed 标志）
+	self._cleanup_task = async_util.loop(60000, 60000, function()
+		self:cleanup_expired()
+	end)
 end
 
 ---------------------------------------------------------------------
@@ -290,13 +283,7 @@ end
 -- 清理资源（带 timer 安全关闭）
 ---------------------------------------------------------------------
 function M:cleanup()
-	self._destroyed = true -- 防止 timer 回调继续执行
-
-	if self._timer then
-		self._timer:stop()
-		self._timer:close()
-		self._timer = nil
-	end
+	async_util.cancel(self, "_cleanup_task")
 
 	self._cache = {}
 	self._expire = {}

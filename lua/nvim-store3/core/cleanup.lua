@@ -7,6 +7,7 @@ local M = {}
 local uv = vim.uv or vim.loop
 local Json = require("nvim-store3.util.json")
 local Path = require("nvim-store3.util.path")
+local async_util = require("nvim-store3.util.async")
 
 ---@class CleanupConfig
 ---@field enabled boolean 是否启用自动清理，默认 true
@@ -24,9 +25,8 @@ local config = {
 	check_interval_hours = 24,
 }
 
----@type uv_timer_t|nil
-local timer = nil
-local cleanup_started = false
+-- 自动清理任务（start 时创建，stop 时取消）
+local tasks = {}
 
 ---获取磁盘剩余空间（MB）
 ---@return number
@@ -249,32 +249,18 @@ function M.start()
 		return
 	end
 
-	if timer or cleanup_started then
+	if tasks.cleanup then
 		return
 	end
 
-	cleanup_started = true
-
-	-- 延迟30秒启动，避免影响启动性能
-	vim.defer_fn(function()
-		run_cleanup()
-
-		local interval_ms = config.check_interval_hours * 3600 * 1000
-		timer = uv.new_timer()
-		if timer then
-			timer:start(interval_ms, interval_ms, vim.schedule_wrap(run_cleanup))
-		end
-	end, 30000)
+	-- 延迟30秒启动，避免影响启动性能；之后按 check_interval_hours 周期清理
+	local interval_ms = config.check_interval_hours * 3600 * 1000
+	tasks.cleanup = async_util.loop(30000, interval_ms, run_cleanup)
 end
 
 ---停止自动清理
 function M.stop()
-	if timer then
-		timer:stop()
-		timer:close()
-		timer = nil
-	end
-	cleanup_started = false
+	async_util.cancel(tasks, "cleanup")
 end
 
 ---手动执行清理
@@ -314,7 +300,7 @@ end
 ---@param opts CleanupConfig
 function M.setup(opts)
 	-- 如果已经在运行，先停止
-	if timer or cleanup_started then
+	if tasks.cleanup then
 		M.stop()
 	end
 
