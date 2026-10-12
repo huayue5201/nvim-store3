@@ -34,7 +34,8 @@ and smart project detection.
 {
   "nvim-store3",
   config = function()
-    -- Optional: customize cleanup
+    -- Cleanup is disabled by default. Enable it explicitly only if you want
+    -- automatic cleanup (it can delete projects that look empty/expired):
     require("nvim-store3").setup_cleanup({
       enabled = true,
       max_age_days = 90,        -- clean projects untouched for 90 days
@@ -52,7 +53,7 @@ and smart project detection.
 use {
   "nvim-store3",
   config = function()
-    require("nvim-store3").setup_cleanup()
+    -- nothing required; call setup_cleanup({ enabled = true }) to opt in
   end
 }
 ```
@@ -343,7 +344,7 @@ store.my_plugin:my_method()
 ## 🗂️ Storage layout
 
 ```
-~/.cache/nvim/nvim-store/                    # actual path = stdpath("cache") .. "/nvim-store"
+~/.local/share/nvim/nvim-store/              # actual path = stdpath("data") .. "/nvim-store"
 ├── global/                                  # global storage
 │   └── data.json                            # { "version": 2, "data": {...} }
 └── projects/                                # project storage
@@ -354,6 +355,9 @@ store.my_plugin:my_method()
 ```
 
 **Project detection rules**:
+- Storage lives under `stdpath("data")` (durable). Older versions used
+  `stdpath("cache")`; on first run nvim-store3 migrates the old directory
+  automatically (a notification is shown).
 - Walk upward looking for project markers (.git, package.json, Makefile, etc.)
 - System-directory blacklist (/etc, /var, /tmp, etc.) — no storage is created
 - The same project uses the same store regardless of the subdirectory you
@@ -364,12 +368,13 @@ store.my_plugin:my_method()
 
 ## 🧹 Smart cleanup strategy
 
-nvim-store3 has a built-in smart cleanup mechanism that manages project
-storage automatically:
+nvim-store3 ships a smart cleanup mechanism, but it is **disabled by
+default** because it deletes files. Opt in explicitly with
+`require("nvim-store3").setup_cleanup({ enabled = true })`:
 
 | Priority | Strategy | Condition | Notes |
 |----------|----------|-----------|-------|
-| 1 | Clean empty projects | unconditional | projects whose data.json is {} are cleaned first |
+| 1 | Clean empty projects | unconditional | projects whose `data.json` has no entries are cleaned first |
 | 2 | Clean expired projects | untouched beyond the configured days | default 90 days, configurable |
 | 3 | Limit count | disk space below threshold | default 100MB, deletes the oldest projects |
 

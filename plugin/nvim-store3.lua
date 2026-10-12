@@ -11,5 +11,6 @@ vim.g.loaded_nvim_store3 = 1
 require("nvim-store3.plugins.project_query").setup()
 require("nvim-store3.plugins.project_delete").setup()
 
--- 启动自动清理（轻量 uv timer，默认 24 小时检查一次）
-require("nvim-store3").setup_cleanup()
+-- 注意：不再默认启动破坏性自动清理。
+-- 如果确实需要，请在配置里显式调用：
+--   require("nvim-store3").setup_cleanup({ enabled = true })

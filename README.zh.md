@@ -24,7 +24,8 @@ nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会
 {
   "nvim-store3",
   config = function()
-    -- 可选：自定义清理配置
+    -- 自动清理默认关闭。确实需要时再显式开启
+    -- （它会删除“空/过期”项目）：
     require("nvim-store3").setup_cleanup({
       enabled = true,
       max_age_days = 90,        -- 90天未访问清理
@@ -42,7 +43,7 @@ nvim-store3 是一个专为 Neovim 设计的持久化存储方案，提供跨会
 use {
   "nvim-store3",
   config = function()
-    require("nvim-store3").setup_cleanup()
+    -- 无需配置；如需自动清理请显式调用 setup_cleanup({ enabled = true })
   end
 }
 ```
@@ -333,7 +334,7 @@ store.my_plugin:my_method()
 ## 🗂️ 存储结构
 
 ```
-~/.cache/nvim/nvim-store/                    # 实际路径 = stdpath("cache") .. "/nvim-store"
+~/.local/share/nvim/nvim-store/              # 实际路径 = stdpath("data") .. "/nvim-store"
 ├── global/                                  # 全局存储
 │   └── data.json                            # { "version": 2, "data": {...} }
 └── projects/                                # 项目存储
@@ -344,6 +345,8 @@ store.my_plugin:my_method()
 ```
 
 **项目识别规则**：
+- 存储位于持久化的 `stdpath("data")`。旧版本误用 `stdpath("cache")`，
+  首次运行时会自动迁移旧目录（并弹出通知）
 - 向上查找项目标志（.git, package.json, Makefile 等）
 - 系统目录黑名单（/etc, /var, /tmp 等）不创建存储
 - 同一项目无论从哪个子目录进入，使用同一个存储
@@ -351,11 +354,13 @@ store.my_plugin:my_method()
 
 ## 🧹 智能清理策略
 
-nvim-store3 内置智能清理机制，自动管理项目存储：
+nvim-store3 提供智能清理机制，但**默认关闭**（因为会删文件）。
+需要时用 `require("nvim-store3").setup_cleanup({ enabled = true })`
+显式开启：
 
 | 优先级 | 策略 | 条件 | 说明 |
 |--------|------|------|------|
-| 1 | 清理空项目 | 无条件 | data.json 为 {} 的项目最先清理 |
+| 1 | 清理空项目 | 无条件 | data.json 无任何数据的项目最先清理 |
 | 2 | 清理过期项目 | 超过配置天数未访问 | 默认 90 天，可配置 |
 | 3 | 限制数量 | 磁盘空间低于阈值 | 默认 100MB，删除最旧的项目 |
 

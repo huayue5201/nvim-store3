@@ -7,6 +7,26 @@ local async_util = require("nvim-store3.util.async")
 local JsonBackend = {}
 JsonBackend.__index = JsonBackend
 
+--- 生成本写入者的唯一标识（进程内唯一；用于 epoch 归属判定）
+--- @return string
+local function new_writer_id()
+	local pid = 0
+	pcall(function()
+		pid = vim.fn.getpid()
+	end)
+	return string.format("%d-%d-%d", pid, os.time(), math.random(1, 1000000000))
+end
+
+--- 归一化 epoch（容忍缺失/旧格式）
+--- @param e any
+--- @return table { n: number, writer: string|nil }
+local function normalize_epoch(e)
+	if type(e) ~= "table" then
+		return { n = 0, writer = nil }
+	end
+	return { n = tonumber(e.n) or 0, writer = e.writer }
+end
+
 --- 创建 JSON 后端实例
 --- @param config table 配置，必须包含 path
 --- @return table JSON 后端实例
@@ -24,6 +44,10 @@ function JsonBackend.new(config)
 		_loaded = false,
 		_write_lock = false,
 		_pending_writes = {},
+		-- ⭐ epoch 护栏（config.epoch_guard 开启时生效）
+		_writer_id = new_writer_id(),
+		_epoch_seen = normalize_epoch(nil),
+		_conflict = false,
 	}, JsonBackend)
 end
 
@@ -37,9 +61,59 @@ function JsonBackend:load()
 		else
 			self.data = {}
 		end
+		-- 记录加载时看到的 epoch，作为后续冲突判定的基线
+		self._epoch_seen = normalize_epoch(type(raw) == "table" and raw.epoch or nil)
 		self._loaded = true
 	end
 	return self.data
+end
+
+---------------------------------------------------------------------
+-- epoch 护栏：防止陈旧实例整库覆盖较新的存储
+---------------------------------------------------------------------
+--- 检测磁盘 epoch 是否已被其他写入者改写
+--- @return boolean
+function JsonBackend:_epoch_conflict()
+	if not self.config.epoch_guard then
+		return false
+	end
+	if self._conflict then
+		return true
+	end
+	if vim.fn.filereadable(self.config.path) ~= 1 then
+		return false
+	end
+	local raw = Json.load(self.config.path)
+	local disk = normalize_epoch(type(raw) == "table" and raw.epoch or nil)
+	local seen = self._epoch_seen or normalize_epoch(nil)
+	return disk.n ~= seen.n or disk.writer ~= seen.writer
+end
+
+--- 处理外部覆盖：保留双方数据、拒绝写入、通知用户（只做一次）
+function JsonBackend:_handle_epoch_conflict()
+	self._conflict = true
+	local ts = os.date("%Y%m%d-%H%M%S")
+	local external_backup = string.format("%s.conflict-%s", self.config.path, ts)
+	local local_backup = string.format("%s.conflict-local-%s", self.config.path, ts)
+
+	-- 保留磁盘上的外部版本
+	if vim.fn.filereadable(self.config.path) == 1 then
+		pcall(function()
+			vim.fn.writefile(vim.fn.readfile(self.config.path), external_backup)
+		end)
+	end
+	-- 保留本进程待写入的快照
+	pcall(Json.save, local_backup, { version = self.version, epoch = self._epoch_seen, data = self.data })
+
+	vim.notify(
+		string.format(
+			"nvim-store3: 检测到存储被外部覆盖，已拒绝写入以防数据丢失。\n磁盘版本: %s\n本地快照: %s",
+			external_backup,
+			local_backup
+		),
+		vim.log.levels.ERROR,
+		{ title = "nvim-store3" }
+	)
 end
 
 --- 处理待处理的写入
@@ -147,6 +221,14 @@ function JsonBackend:flush()
 		return false
 	end
 
+	-- ⭐ epoch 护栏：磁盘被其他写入者改写时拒绝覆盖
+	if self:_epoch_conflict() then
+		if not self._conflict then
+			self:_handle_epoch_conflict()
+		end
+		return false
+	end
+
 	self._write_lock = true
 	local success = false
 	local backup_path = self.config.path .. ".backup"
@@ -172,9 +254,18 @@ function JsonBackend:flush()
 			end
 		end
 
-		success = Json.save(self.config.path, { version = self.version, data = self.data })
+		local payload = { version = self.version, data = self.data }
+		if self.config.epoch_guard then
+			local seen = self._epoch_seen or normalize_epoch(nil)
+			payload.epoch = { n = (seen.n or 0) + 1, writer = self._writer_id }
+		end
+
+		success = Json.save(self.config.path, payload)
 
 		if success then
+			if self.config.epoch_guard then
+				self._epoch_seen = payload.epoch
+			end
 			self.dirty = false
 			pcall(vim.fn.delete, backup_path)
 		elseif vim.fn.filereadable(backup_path) == 1 then

@@ -31,8 +31,9 @@ local tasks = {}
 ---获取磁盘剩余空间（MB）
 ---@return number
 local function get_free_space_mb()
-	local cache_dir = vim.fn.stdpath("cache")
-	local ok, stat = pcall(uv.fs_statvfs, cache_dir)
+	-- 用持久存储所在磁盘（data 目录）判断剩余空间
+	local store_dir = vim.fn.fnamemodify(Path.store_root(), ":h")
+	local ok, stat = pcall(uv.fs_statvfs, store_dir)
 	if ok and stat and stat.bavail and stat.bsize then
 		return (stat.bavail * stat.bsize) / 1024 / 1024
 	end
@@ -54,12 +55,25 @@ local function get_all_projects()
 			local data_file = dir .. "/data.json"
 			local meta = Json.load(meta_path)
 
-			-- 判断是否有数据（仅识别 v2 包装格式）
+			-- 判断是否有数据（v2 包装格式，兼容旧版扁平格式）
 			local has_data = false
 			if vim.fn.filereadable(data_file) == 1 then
 				local raw = Json.load(data_file)
-				if type(raw) == "table" and type(raw.data) == "table" then
-					has_data = next(raw.data) ~= nil
+				if type(raw) == "table" then
+					if type(raw.data) == "table" then
+						has_data = next(raw.data) ~= nil
+					elseif raw.version == nil and next(raw) ~= nil then
+						-- 旧版扁平格式（无 version/data 包装），视为有数据，避免误删
+						has_data = true
+					end
+				end
+			end
+
+			-- 存在含数据的备份时，不视为可清理的空项目
+			if not has_data and vim.fn.filereadable(data_file .. ".backup") == 1 then
+				local backup = Json.load(data_file .. ".backup")
+				if type(backup) == "table" and next(backup) ~= nil then
+					has_data = true
 				end
 			end
 
