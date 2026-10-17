@@ -112,14 +112,18 @@ local start_dir_cache = {}
 ---@param from string|nil
 ---@return string
 local function start_dir(from)
-	local cache_key = from or ""
-	local cached = start_dir_cache[cache_key]
-	if cached ~= nil then
-		return cached
+	-- 没有 from 时必须按「当前」cwd 解析：cwd 会随 :tcd / 会话恢复变化，
+	-- 不能把首次结果按 "" 缓存（否则所有项目共用启动目录的 store）。
+	local explicit = from ~= nil and from ~= ""
+	if explicit then
+		local cached = start_dir_cache[from]
+		if cached ~= nil then
+			return cached
+		end
 	end
 
 	local path
-	if not from or from == "" then
+	if not explicit then
 		path = vim.fn.getcwd()
 	else
 		path = vim.fn.fnamemodify(from, ":p")
@@ -136,7 +140,9 @@ local function start_dir(from)
 		path = "/"
 	end
 
-	start_dir_cache[cache_key] = path
+	if explicit then
+		start_dir_cache[from] = path
+	end
 	return path
 end
 
