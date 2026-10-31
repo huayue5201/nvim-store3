@@ -350,9 +350,14 @@ store.my_plugin:my_method()
 └── projects/                                # project storage
     ├── 4269cebe2bf51ea9/                    # project A (first 16 chars of root-path SHA-256)
     │   ├── meta.json                        # { root, created_at, accessed_at, updated_at }
-    │   └── data.json                        # { "version": 2, "data": {...} }
+    │   ├── data.json                        # facts.* — the truth that cannot be rebuilt (+ epoch guard)
+    │   └── cache.json                       # cache.* — rebuildable; delete it to force a rebuild
     └── ...
 ```
+
+`facts.*` and `cache.*` are one key space through the API, but they live in two
+files. Cache churn therefore never trips the epoch guard, and `cache.json` can be
+deleted at any time without losing data.
 
 **Project detection rules**:
 - Storage lives under `stdpath("data")` (durable). Older versions used

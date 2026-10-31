@@ -180,7 +180,12 @@ PROJECT DELETE ~
     ├── global/data.json
     └── projects/<hash>/           -- first 16 chars of root-path SHA-256
         ├── meta.json              -- { root, created_at, accessed_at, updated_at }
-        └── data.json
+        ├── data.json              -- facts.* : the truth (epoch guarded)
+        └── cache.json             -- cache.* : rebuildable, safe to delete
+
+Keys starting with "cache." are written to cache.json instead of data.json.
+The API still sees one key space, but cache churn never trips the epoch guard
+and cache.json can be deleted at any time to force a rebuild.
 
 Project detection walks upward looking for markers (.git, package.json,
 Makefile, ...). System directories are blacklisted.

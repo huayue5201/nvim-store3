@@ -16,39 +16,38 @@
 
 local M = {}
 
+local Bus = {}
+Bus.__index = Bus
+
+--- 注册事件回调
+--- @param event string 事件名
+--- @param callback fun(payload: table) 回调
+function Bus:on(event, callback)
+	if not self._handlers[event] then
+		self._handlers[event] = {}
+	end
+	table.insert(self._handlers[event], callback)
+end
+
+--- 触发事件（单个回调抛错不影响其余订阅者）
+--- @param event string 事件名
+--- @param payload table 负载
+function Bus:emit(event, payload)
+	local handlers = self._handlers[event]
+	if not handlers then
+		return
+	end
+	for _, cb in ipairs(handlers) do
+		pcall(cb, payload)
+	end
+end
+
 ---------------------------------------------------------------------
 -- 创建事件管理器
 ---------------------------------------------------------------------
-
+--- @return table Bus 实例
 function M.new()
-	local self = {
-		_handlers = {}, -- { event = { callback1, callback2, ... } }
-	}
-
-	-------------------------------------------------------------------
-	-- 注册事件回调
-	-------------------------------------------------------------------
-	function self:on(event, callback)
-		if not self._handlers[event] then
-			self._handlers[event] = {}
-		end
-		table.insert(self._handlers[event], callback)
-	end
-
-	-------------------------------------------------------------------
-	-- 触发事件
-	-------------------------------------------------------------------
-	function self:emit(event, payload)
-		local handlers = self._handlers[event]
-		if not handlers then
-			return
-		end
-		for _, cb in ipairs(handlers) do
-			pcall(cb, payload)
-		end
-	end
-
-	return self
+	return setmetatable({ _handlers = {} }, Bus)
 end
 
 return M

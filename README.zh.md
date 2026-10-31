@@ -340,9 +340,13 @@ store.my_plugin:my_method()
 └── projects/                                # 项目存储
     ├── 4269cebe2bf51ea9/                    # 项目 A（根路径 SHA-256 前 16 位）
     │   ├── meta.json                        # { root, created_at, accessed_at, updated_at }
-    │   └── data.json                        # { "version": 2, "data": {...} }
+    │   ├── data.json                        # facts.* —— 不可重建的真相（带 epoch 护栏）
+    │   └── cache.json                       # cache.* —— 可重建；删掉即强制重建
     └── ...
 ```
+
+`facts.*` 与 `cache.*` 在 API 上是同一个键空间，但落盘分两个文件：
+缓存的抖动不会再触发 epoch 护栏，`cache.json` 也可以随时删除而不会丢数据。
 
 **项目识别规则**：
 - 存储位于持久化的 `stdpath("data")`。旧版本误用 `stdpath("cache")`，
