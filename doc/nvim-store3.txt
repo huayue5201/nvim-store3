@@ -204,6 +204,7 @@ project is this", so plugins that keep per-project data (TODO files, notes,
 
     local project = require("nvim-store3.util.project")
     project.root()           -- project root (same markers as the store)
+    project.marker_root()    -- root, or nil when no project marker was found
     project.identity()       -- "github.com/owner/repo[#subdir]" or "local:/abs/path"
     project.name()           -- "<slug>--<first 8 of sha256(identity)>"
     project.info()           -- { name, label, root, identity }

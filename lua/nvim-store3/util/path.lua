@@ -3,9 +3,9 @@
 
 local M = {}
 
----项目标志列表
+---项目标志列表（`project_root` 向上找这些；消费者也可用它判断「这里到底是不是项目」）
 ---@type string[]
-local PROJECT_MARKERS = {
+M.PROJECT_MARKERS = {
 	".git",
 	".hg",
 	".svn",
@@ -20,6 +20,8 @@ local PROJECT_MARKERS = {
 	"CMakeLists.txt",
 	"README.md",
 }
+
+local PROJECT_MARKERS = M.PROJECT_MARKERS
 
 ---系统目录黑名单
 ---@type string[]

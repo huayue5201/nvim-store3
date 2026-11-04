@@ -80,6 +80,34 @@ function M.root(path)
 	return M.realpath(start)
 end
 
+--- 只在向上真的找到项目标志时返回根；找不到返回 nil。
+--- 消费者用它回答「当前目录算不算一个项目」——`M.root()` 的兜底是路径自身，
+--- 无法区分「这就是项目根」和「这里根本没有项目」。
+---@param path? string
+---@return string|nil
+function M.marker_root(path)
+	local ok, store_path = pcall(require, "nvim-store3.util.path")
+	if not ok or not store_path or not store_path.PROJECT_MARKERS then
+		return nil
+	end
+	local start = M.realpath(path or vim.fn.getcwd())
+	local current = start
+	for _ = 1, 10 do
+		for _, marker in ipairs(store_path.PROJECT_MARKERS) do
+			local marker_path = current .. "/" .. marker
+			if vim.fn.filereadable(marker_path) == 1 or vim.fn.isdirectory(marker_path) == 1 then
+				return current
+			end
+		end
+		local parent = vim.fn.fnamemodify(current, ":h")
+		if parent == current then
+			return nil
+		end
+		current = parent
+	end
+	return nil
+end
+
 ---------------------------------------------------------------------
 -- git
 ---------------------------------------------------------------------
