@@ -11,6 +11,7 @@ CONTENTS                                                  *nvim-store3*
 6. Configuration .................................... |nvim-store3-config|
 7. Built-in plugins ................................. |nvim-store3-plugins|
 8. Storage layout ................................... |nvim-store3-layout|
+9. Utilities ........................................ |nvim-store3-util|
 
 ==============================================================================
 1. INTRODUCTION                                        *nvim-store3-intro*
@@ -192,6 +193,41 @@ Makefile, ...). System directories are blacklisted.
 
 Storage lives under stdpath("data") for durability. Older versions used
 stdpath("cache"); on first run the old directory is migrated automatically.
+
+==============================================================================
+9. UTILITIES                                           *nvim-store3-util*
+
+                                              *nvim-store3-project-identity*
+`nvim-store3.util.project` gives consumers a single definition of "which
+project is this", so plugins that keep per-project data (TODO files, notes,
+…) agree with the store and with each other.
+
+    local project = require("nvim-store3.util.project")
+    project.root()           -- project root (same markers as the store)
+    project.identity()       -- "github.com/owner/repo[#subdir]" or "local:/abs/path"
+    project.name()           -- "<slug>--<first 8 of sha256(identity)>"
+    project.info()           -- { name, label, root, identity }
+    project.name_for(identity)
+
+The identity is derived from the git remote (normalised, credentials and
+`.git` stripped) so the same repository keeps the same directory when moved
+or cloned elsewhere; repositories without a remote fall back to the absolute
+root path. A subdirectory of a repository gets `#<relative path>` appended,
+so monorepo packages stay separate. The readable part of the directory name
+is taken from the identity (repository / package name), not from the local
+directory, so renaming the checkout or cloning elsewhere keeps the same
+directory.
+
+Each per-project directory can carry a `.project.json` manifest
+(`{ name, label, identity, root }`) written by the consumer:
+
+    project.read_manifest(dir)
+    project.write_manifest(dir, info)   -- no-op when unchanged
+    project.list(vault)                 -- project dirs under a vault, sorted by label
+
+The manifest matters because the hash in the directory name cannot be
+reversed: without it a plugin cannot tell which project an orphaned directory
+belonged to (see cleanup / GC decisions in the consumer).
 
 ==============================================================================
 vim:tw=78:ts=8:noet:ft=help:norl:
