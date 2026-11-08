@@ -58,7 +58,7 @@ end
 
 function M:delete_namespace(namespace)
 	if self.store._noop then
-		vim.notify("当前不在项目目录中", vim.log.levels.WARN)
+		vim.notify("Not in a project directory", vim.log.levels.WARN)
 		return
 	end
 
@@ -68,12 +68,12 @@ function M:delete_namespace(namespace)
 	local count = self.namespace_counts[namespace] or 0
 
 	if count == 0 then
-		vim.notify("命名空间 '" .. namespace .. "' 没有数据", vim.log.levels.INFO)
+		vim.notify("Namespace '" .. namespace .. "' has no data", vim.log.levels.INFO)
 		return
 	end
 
 	vim.ui.input({
-		prompt = string.format("删除 %s (%d条数据)？(y/n) ", namespace, count),
+		prompt = string.format("Delete '%s' (%d entries)? (y/n) ", namespace, count),
 	}, function(input)
 		if input and input:lower() == "y" then
 			local keys = self.store:namespace_keys(namespace)
@@ -82,14 +82,14 @@ function M:delete_namespace(namespace)
 			end
 			self.store:flush()
 			self.need_refresh = true
-			vim.notify(string.format("✅ 已删除 %d 条数据", #keys), vim.log.levels.INFO)
+			vim.notify(string.format("✅ Deleted %d entries", #keys), vim.log.levels.INFO)
 		end
 	end)
 end
 
 function M:select_and_delete()
 	if self.store._noop then
-		vim.notify("当前不在项目目录中", vim.log.levels.WARN)
+		vim.notify("Not in a project directory", vim.log.levels.WARN)
 		return
 	end
 
@@ -106,12 +106,12 @@ function M:select_and_delete()
 	end)
 
 	if #items == 0 then
-		vim.notify("没有数据", vim.log.levels.INFO)
+		vim.notify("No data", vim.log.levels.INFO)
 		return
 	end
 
 	vim.ui.select(items, {
-		prompt = "选择要删除的命名空间",
+		prompt = "Select a namespace to delete",
 		format_item = function(item)
 			return item.display
 		end,
@@ -135,7 +135,7 @@ function M.setup()
 			deleter:select_and_delete()
 		end
 	end, {
-		desc = "删除命名空间数据",
+		desc = "Delete namespace data",
 		nargs = "?",
 		complete = function()
 			local store = require("nvim-store3").project()

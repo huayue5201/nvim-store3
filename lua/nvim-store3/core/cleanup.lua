@@ -178,11 +178,7 @@ local function limit_count_if_needed(projects, max_count, min_free_space_mb)
 
 	if deleted > 0 then
 		vim.notify(
-			string.format(
-				"磁盘空间不足，清理了 %d 个旧项目，释放 %.2f MB",
-				deleted,
-				freed / 1024 / 1024
-			),
+			string.format("Disk space is low: cleaned %d old projects, freed %.2f MB", deleted, freed / 1024 / 1024),
 			vim.log.levels.WARN
 		)
 	end
@@ -204,7 +200,7 @@ local function run_cleanup()
 
 	if deleted > 0 then
 		vim.notify(
-			string.format("清理了 %d 个空项目，释放 %.2f MB", deleted, freed / 1024 / 1024),
+			string.format("Cleaned %d empty projects, freed %.2f MB", deleted, freed / 1024 / 1024),
 			vim.log.levels.INFO
 		)
 		-- 刷新项目列表
@@ -219,7 +215,7 @@ local function run_cleanup()
 	if deleted > 0 then
 		vim.notify(
 			string.format(
-				"清理了 %d 个过期项目（>%d天），释放 %.2f MB",
+				"Cleaned %d expired projects (>%d days), freed %.2f MB",
 				deleted,
 				config.max_age_days,
 				freed / 1024 / 1024
@@ -243,7 +239,7 @@ local function run_cleanup()
 	if total_deleted > 0 then
 		vim.notify(
 			string.format(
-				"存储清理完成：删除 %d 个项目，释放 %.2f MB 空间",
+				"Storage cleanup complete: deleted %d projects, freed %.2f MB",
 				total_deleted,
 				total_freed / 1024 / 1024
 			),

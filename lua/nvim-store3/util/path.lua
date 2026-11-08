@@ -82,10 +82,10 @@ function M.migrate_legacy_store()
 
 	vim.fn.mkdir(vim.fn.fnamemodify(new, ":h"), "p")
 	if vim.fn.rename(old, new) == 0 then
-		vim.notify("nvim-store3: 存储已迁移到 " .. new, vim.log.levels.INFO, { title = "nvim-store3" })
+		vim.notify("nvim-store3: store migrated to " .. new, vim.log.levels.INFO, { title = "nvim-store3" })
 	else
 		vim.notify(
-			"nvim-store3: 旧存储迁移失败，请手动移动 " .. old .. " -> " .. new,
+			"nvim-store3: legacy store migration failed; move manually " .. old .. " -> " .. new,
 			vim.log.levels.WARN,
 			{ title = "nvim-store3" }
 		)

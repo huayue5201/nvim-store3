@@ -143,7 +143,7 @@ end
 
 function M:show_json(namespace)
 	if self.store._noop then
-		vim.notify("当前不在项目目录中", vim.log.levels.WARN)
+		vim.notify("Not in a project directory", vim.log.levels.WARN)
 		return
 	end
 
@@ -197,7 +197,7 @@ end
 
 function M:select_namespace()
 	if self.store._noop then
-		vim.notify("当前不在项目目录中", vim.log.levels.WARN)
+		vim.notify("Not in a project directory", vim.log.levels.WARN)
 		return
 	end
 
@@ -217,12 +217,12 @@ function M:select_namespace()
 	end)
 
 	if #items == 0 then
-		vim.notify("没有数据", vim.log.levels.INFO)
+		vim.notify("No data", vim.log.levels.INFO)
 		return
 	end
 
 	vim.ui.select(items, {
-		prompt = "选择命名空间查看数据",
+		prompt = "Select a namespace to view data",
 		format_item = function(item)
 			return item.display
 		end,
@@ -231,7 +231,7 @@ function M:select_namespace()
 			-- 显示前再次验证数据是否存在
 			local current_count = self.namespace_counts[choice.ns] or 0
 			if current_count == 0 then
-				vim.notify(string.format("命名空间 '%s' 的数据已被删除", choice.ns), vim.log.levels.WARN)
+				vim.notify(string.format("Namespace '%s' data has been deleted", choice.ns), vim.log.levels.WARN)
 				return
 			end
 			self:show_json(choice.ns)
@@ -248,7 +248,7 @@ function M.setup()
 		local store = require("nvim-store3").project()
 		local query = store.project_query or M.new(store)
 		query:select_namespace()
-	end, { desc = "查看存储数据" })
+	end, { desc = "View stored data" })
 end
 
 return M

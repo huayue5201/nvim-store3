@@ -201,7 +201,7 @@ function JsonBackend:_handle_epoch_conflict()
 
 	vim.notify(
 		string.format(
-			"nvim-store3: 检测到存储被外部覆盖，已拒绝写入以防数据丢失。\n磁盘版本: %s\n本地快照: %s",
+			"nvim-store3: store was modified externally; write refused to avoid data loss.\nDisk version: %s\nLocal snapshot: %s",
 			external_backup,
 			local_backup
 		),
@@ -363,7 +363,11 @@ function JsonBackend:_flush_cache()
 	if ok then
 		self.dirty_cache = false
 	else
-		vim.notify("nvim-store3: 缓存分区写入失败（不影响数据）", vim.log.levels.WARN, { title = "nvim-store3" })
+		vim.notify(
+			"nvim-store3: cache partition write failed (data unaffected)",
+			vim.log.levels.WARN,
+			{ title = "nvim-store3" }
+		)
 	end
 	return ok
 end
